@@ -97,7 +97,7 @@ static void planner(
 // plhs should contain output parameters (1):
 // 1st is a row vector <dx,dy> which corresponds to the action that the robot should make
 void mexFunction( int nlhs, mxArray *plhs[],
-        int nrhs, const mxArray*prhs[] )
+        int nrhs, const mxArray *prhs[] )
         
 {
     
