@@ -6,6 +6,8 @@
 #include <math.h>
 #include <mex.h>
 
+#include <vector>
+
 /* Input Arguments */
 #define	MAP_IN                  prhs[0]
 #define	ROBOT_IN                prhs[1]
@@ -32,6 +34,23 @@
 
 #define NUMOFDIRS 8
 
+class a_star
+{
+    a_star(int x_size, int y_size, int robotposeX, int robotposeY)
+    {
+        float g_vals[x_size+y_size] = {-1};
+        std::vector<int[2]> open;
+        std::vector<int[2]> closed;
+        int x_size = x_size;
+        int y_size = y_size;
+        g_vals[GETMAPINDEX(robotposeX,robotposeY,x_size,y_size)] = 0;
+    }
+    void compute_path()
+    {
+        
+    }
+};
+
 static void planner(
         double*	map,
         int collision_thresh,
@@ -47,17 +66,25 @@ static void planner(
         double* action_ptr
         )
 {
+
+    //initialize g_vals to -1
+    
+
+    g_vals[GETMAPINDEX(robotposeX,robotposeY,x_size,y_size)] = 0;
+    open.push_back({robotposeX,robotposeY});
+
     // 8-connected grid
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     
-    // for now greedily move towards the final target position,
-    // but this is where you can put your planner
+    // Get current target position
 
-    int goalposeX = (int) target_traj[target_steps-1];
-    int goalposeY = (int) target_traj[target_steps-1+target_steps];
+    int goalposeX = (int) target_traj[curr_time-1];
+    int goalposeY = (int) target_traj[curr_time-1+target_steps];
     // printf("robot: %d %d;\n", robotposeX, robotposeY);
     // printf("goal: %d %d;\n", goalposeX, goalposeY);
+
+
 
     int bestX = 0, bestY = 0; // robot will not move if greedy action leads to collision
     double olddisttotarget = (double)sqrt(((robotposeX-goalposeX)*(robotposeX-goalposeX) + (robotposeY-goalposeY)*(robotposeY-goalposeY)));
