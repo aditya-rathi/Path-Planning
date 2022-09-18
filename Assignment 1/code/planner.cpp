@@ -86,6 +86,7 @@ class a_star
     public:
     std::vector<Node*> open;
     std::vector<Node*> closed;
+    std::vector<Node*> succ;
     int x_size, y_size;
     Node goalpose;
     Node startpose;
@@ -120,19 +121,29 @@ class a_star
     void compute_path()
     {
         std::cout<<((std::find(open.begin(),open.end(),&(this->goalpose))==open.end()) && !(open.empty()));
-        while((std::find(open.begin(),open.end(),&(this->goalpose))==open.end()) && !(open.empty()))
+        //(find_if(open.begin(),open.end(),[this](Node* a){return ((this->goalpose.coordinate.x == a->coordinate.x)&&(this->goalpose.coordinate.y == a->coordinate.y));})==open.end()) && 
+        while(!(open.empty()))
         {
             std::sort(open.begin(), open.end(),[](Node* a, Node* b){return (a->f<b->f);}); //compare_f_val);
             Node* curr = open[0];
+            if ( (curr->coordinate.x == this->goalpose.coordinate.x) && (curr->coordinate.y == this->goalpose.coordinate.y) )
+            {
+                this->goalpose.parent = curr->parent;
+                this->goalpose.g = curr->g;
+                this->goalpose.h = 0;
+                this->goalpose.set_f();
+                break;
+            }
             mexPrintf("x: %d, y= %d \n",(*curr).coordinate.x,(*curr).coordinate.y);
             closed.push_back(curr);
-            std::vector<Node*> succ;
+            succ.clear();
             for(int dir = 0; dir < NUMOFDIRS; dir++)
             {
                 Node* new_loc = new Node(curr->coordinate.x + dX[dir],curr->coordinate.y + dY[dir]);
 
                 if (new_loc->coordinate.x >= 1 && new_loc->coordinate.x <= x_size && new_loc->coordinate.y >= 1 && new_loc->coordinate.y <= y_size) //Within Bounds
                 {
+                    int z = find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end();
                     if (find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end())
                     {
                         if (((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] < collision_thresh))  //if free
@@ -143,7 +154,7 @@ class a_star
                                 new_loc->h = euc_dist(*new_loc,goalpose);
                                 new_loc->set_f();
                                 new_loc->parent = curr;
-                                std::vector<Node*>::iterator it = std::find(open.begin(),open.end(),new_loc);
+                                std::vector<Node*>::iterator it = find_if(open.begin(),open.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));});
                                 if (it==open.end()) open.push_back(new_loc);
                                 else {(**it).f = new_loc->f; (**it).parent = new_loc->parent;}
                             }
@@ -157,6 +168,7 @@ class a_star
             }
             open.erase(open.begin());
         }
+        mexPrintf("open size = %d",open.size());
     }
 
     Node make_path() //For now just return 1 action
