@@ -7,6 +7,12 @@
 #include <mex.h>
 
 #include <vector>
+#include <algorithm>
+#include <iterator>
+#include <array>
+#include <queue>
+#include <stack>
+#include <iostream>
 
 /* Input Arguments */
 #define	MAP_IN                  prhs[0]
@@ -34,21 +40,139 @@
 
 #define NUMOFDIRS 8
 
+struct Point
+{
+    int x = 0;
+    int y = 0;
+
+    Point(){}
+
+    Point(int a, int b) : x(a), y(b) {}
+    
+    
+    void set(int a, int b)
+    {
+        this->x = a;
+        this->y = b;
+    }
+};
+
+struct Node
+{
+    Point coordinate;
+    Node* parent;
+    double f = 1e9;
+    double g = 1e9;
+    double h = 1e9;
+
+    Node(){}
+
+    Node(int a, int b) : coordinate(a,b) {}
+
+    void set_f()
+    {
+        f = g + h;
+    }
+};
+
+// bool operator==(const Node* lhs, const Node* rhs)
+// {
+//     if (lhs == rhs) return true;
+//     return false;
+// }
+
 class a_star
 {
-    a_star(int x_size, int y_size, int robotposeX, int robotposeY)
+    public:
+    std::vector<Node*> open;
+    std::vector<Node*> closed;
+    int x_size, y_size;
+    Node goalpose;
+    Node startpose;
+    double* g_vals;
+    double* map;
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+    int collision_thresh;
+    
+    a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
+    x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
-        float g_vals[x_size+y_size] = {-1};
-        std::vector<int[2]> open;
-        std::vector<int[2]> closed;
-        int x_size = x_size;
-        int y_size = y_size;
-        g_vals[GETMAPINDEX(robotposeX,robotposeY,x_size,y_size)] = 0;
+        this->goalpose.coordinate.set(goalposeX, goalposeY);
+        this->startpose.coordinate.set(robotposeX,robotposeY);
+        this->startpose.g = 0;
+        this->startpose.h = euc_dist(startpose,goalpose);
+        this->startpose.set_f();
+        open.push_back(&startpose);
     }
+
+    static bool compare_f_val(const Node* a, const Node* b)
+    {
+        if(a->f<b->f) return true;
+        return false;
+    }
+
+    double euc_dist(Node a, Node b)
+    {
+        return (double)sqrt(((a.coordinate.x-b.coordinate.x)*(a.coordinate.x-b.coordinate.x) + (a.coordinate.y-b.coordinate.y)*(a.coordinate.y-b.coordinate.y)));
+    }
+
     void compute_path()
     {
-        
+        std::cout<<((std::find(open.begin(),open.end(),&(this->goalpose))==open.end()) && !(open.empty()));
+        while((std::find(open.begin(),open.end(),&(this->goalpose))==open.end()) && !(open.empty()))
+        {
+            std::sort(open.begin(), open.end(),[](Node* a, Node* b){return (a->f<b->f);}); //compare_f_val);
+            Node* curr = open[0];
+            mexPrintf("x: %d, y= %d \n",(*curr).coordinate.x,(*curr).coordinate.y);
+            closed.push_back(curr);
+            std::vector<Node*> succ;
+            for(int dir = 0; dir < NUMOFDIRS; dir++)
+            {
+                Node* new_loc = new Node(curr->coordinate.x + dX[dir],curr->coordinate.y + dY[dir]);
+
+                if (new_loc->coordinate.x >= 1 && new_loc->coordinate.x <= x_size && new_loc->coordinate.y >= 1 && new_loc->coordinate.y <= y_size) //Within Bounds
+                {
+                    if (find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end())
+                    {
+                        if (((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] < collision_thresh))  //if free
+                        {
+                            if (new_loc->g > curr->g + euc_dist(*curr, *new_loc))
+                            {
+                                new_loc->g = curr->g + euc_dist(*curr, *new_loc);
+                                new_loc->h = euc_dist(*new_loc,goalpose);
+                                new_loc->set_f();
+                                new_loc->parent = curr;
+                                std::vector<Node*>::iterator it = std::find(open.begin(),open.end(),new_loc);
+                                if (it==open.end()) open.push_back(new_loc);
+                                else {(**it).f = new_loc->f; (**it).parent = new_loc->parent;}
+                            }
+                        }
+                        else //If not free add to closed list
+                        {
+                            closed.push_back(new_loc);
+                        }
+                    }
+                }
+            }
+            open.erase(open.begin());
+        }
     }
+
+    Node make_path() //For now just return 1 action
+    {
+        std::stack<Node*> path;
+        Node* curr = &goalpose;
+        while (curr->parent != &startpose)
+        {
+            path.push(curr);
+            curr = curr->parent;
+        }
+
+        return *(path.top());
+    }
+
+    
 };
 
 static void planner(
@@ -67,12 +191,6 @@ static void planner(
         )
 {
 
-    //initialize g_vals to -1
-    
-
-    g_vals[GETMAPINDEX(robotposeX,robotposeY,x_size,y_size)] = 0;
-    open.push_back({robotposeX,robotposeY});
-
     // 8-connected grid
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
@@ -84,34 +202,12 @@ static void planner(
     // printf("robot: %d %d;\n", robotposeX, robotposeY);
     // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
+    a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh);
+    mystar.compute_path();
+    Node act = mystar.make_path();
 
-
-    int bestX = 0, bestY = 0; // robot will not move if greedy action leads to collision
-    double olddisttotarget = (double)sqrt(((robotposeX-goalposeX)*(robotposeX-goalposeX) + (robotposeY-goalposeY)*(robotposeY-goalposeY)));
-    double disttotarget;
-    for(int dir = 0; dir < NUMOFDIRS; dir++)
-    {
-        int newx = robotposeX + dX[dir];
-        int newy = robotposeY + dY[dir];
-
-        if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size)
-        {
-            if (((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh))  //if free
-            {
-                disttotarget = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
-                if(disttotarget < olddisttotarget)
-                {
-                    olddisttotarget = disttotarget;
-                    bestX = dX[dir];
-                    bestY = dY[dir];
-                }
-            }
-        }
-    }
-    robotposeX = robotposeX + bestX;
-    robotposeY = robotposeY + bestY;
-    action_ptr[0] = robotposeX;
-    action_ptr[1] = robotposeY;
+    action_ptr[0] = act.coordinate.x;
+    action_ptr[1] = act.coordinate.y;
     
     return;
 }
