@@ -133,14 +133,14 @@ class a_star
                 this->goalpose.set_f();
                 break;
             }
-            mexPrintf("x: %d, y= %d \n",(*curr).coordinate.x,(*curr).coordinate.y);
+            // mexPrintf("x: %d, y= %d, f: %f, g: %f \n",(*curr).coordinate.x,(*curr).coordinate.y, (*curr).f, (*curr).g);
             closed.push_back(curr);
             succ.clear();
             for(int dir = 0; dir < NUMOFDIRS; dir++)
             {
                 Node* new_loc = new Node(curr->coordinate.x + dX[dir],curr->coordinate.y + dY[dir]);
 
-                if (new_loc->coordinate.x >= 1 && new_loc->coordinate.x <= x_size && new_loc->coordinate.y >= 1 && new_loc->coordinate.y <= y_size) //Within Bounds
+                if (new_loc->coordinate.x >= 0 && new_loc->coordinate.x < x_size && new_loc->coordinate.y >= 0 && new_loc->coordinate.y < y_size) //Within Bounds
                 {
                     if (find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end())
                     {
@@ -173,7 +173,7 @@ class a_star
     {
         std::stack<Node*> path;
         Node* curr = &goalpose;
-        while (curr->parent != &startpose)
+        while (curr != &startpose)
         {
             path.push(curr);
             curr = curr->parent;
@@ -207,8 +207,8 @@ static void planner(
     
     // Get current target position
 
-    int goalposeX = (int) target_traj[curr_time-1];
-    int goalposeY = (int) target_traj[curr_time-1+target_steps];
+    int goalposeX = (int) target_traj[curr_time];
+    int goalposeY = (int) target_traj[curr_time+target_steps];
     // printf("robot: %d %d;\n", robotposeX, robotposeY);
     // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
