@@ -120,11 +120,10 @@ class a_star
 
     void compute_path()
     {
-        std::cout<<((std::find(open.begin(),open.end(),&(this->goalpose))==open.end()) && !(open.empty()));
         //(find_if(open.begin(),open.end(),[this](Node* a){return ((this->goalpose.coordinate.x == a->coordinate.x)&&(this->goalpose.coordinate.y == a->coordinate.y));})==open.end()) && 
         while(!(open.empty()))
         {
-            std::sort(open.begin(), open.end(),[](Node* a, Node* b){return (a->f<b->f);}); //compare_f_val);
+            std::sort(open.begin(), open.end(),[](Node* a, Node* b){return (a->f < b->f);}); //compare_f_val);
             Node* curr = open[0];
             if ( (curr->coordinate.x == this->goalpose.coordinate.x) && (curr->coordinate.y == this->goalpose.coordinate.y) )
             {
@@ -143,7 +142,6 @@ class a_star
 
                 if (new_loc->coordinate.x >= 1 && new_loc->coordinate.x <= x_size && new_loc->coordinate.y >= 1 && new_loc->coordinate.y <= y_size) //Within Bounds
                 {
-                    int z = find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end();
                     if (find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end())
                     {
                         if (((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] < collision_thresh))  //if free
