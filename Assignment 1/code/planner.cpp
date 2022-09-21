@@ -90,14 +90,14 @@ struct IntPairHash {
 //     return false;
 // }
 
-class Compare
-{
-public:
-    bool operator() (Node* a, Node* b)
-    {
-        return (a->f)>(b->f);
-    }
-};
+// class Compare
+// {
+// public:
+//     bool operator() (Node* a, Node* b)
+//     {
+//         return (a->f)>(b->f);
+//     }
+// };
 
 class a_star
 {
@@ -106,7 +106,7 @@ class a_star
     std::unordered_set<std::pair<int,int>,IntPairHash> closed;
     int x_size, y_size;
     std::pair<int,int> goalpose;
-    Node startpose;
+    std::pair<int,int> startpose;
     double* map;
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
@@ -118,13 +118,15 @@ class a_star
     a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
     x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
-        this->startpose.coordinate = std::make_pair(robotposeX,robotposeY);
-        this->startpose.g = 0;
-        this->startpose.h = euc_dist(startpose.coordinate,goalpose);
-        this->startpose.set_f();
+        this->startpose = std::make_pair(robotposeX,robotposeY);
+        Node temp;
+        temp.coordinate = startpose;
+        temp.g = 0;
+        temp.h = euc_dist(startpose,goalpose);
+        temp.set_f();
+        my_map[startpose] = temp;
+        open.push_back(&my_map[startpose]);
         goalpose = std::make_pair(goalposeX,goalposeY);
-        my_map[startpose.coordinate] = startpose;
-        open.push_back(&startpose);
         std::make_heap(open.begin(),open.end(),[](Node* a, Node*b){return (a->f)>(b->f);}); //make min heap
     }
 
@@ -183,9 +185,9 @@ class a_star
                             auto it = my_map.find(new_loc);
                             if (it==my_map.end()) 
                             {
-                                open.push_back(&temp);
-                                std::push_heap(open.begin(),open.end());
                                 my_map[new_loc] = temp;
+                                open.push_back(&my_map[new_loc]);
+                                std::push_heap(open.begin(),open.end());     
                             }
                             else 
                             {
@@ -208,7 +210,7 @@ class a_star
     std::pair<int,int> make_path() //For now just return 1 action
     {
         Node curr = my_map[goalpose];
-        while (curr.parent != startpose.coordinate)
+        while (curr.parent != startpose)
         {
             curr = my_map[curr.parent];
         }
