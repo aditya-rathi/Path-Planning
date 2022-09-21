@@ -13,11 +13,6 @@
 #include <queue>
 #include <stack>
 #include <iostream>
-#include <unordered_map>
-#include <unordered_set>
-#include <map>
-#include <utility> 
-
 
 /* Input Arguments */
 #define	MAP_IN                  prhs[0]
@@ -64,23 +59,19 @@ struct Point
 
 struct Node
 {
-    std::pair<int,int> coordinate;
-    std::pair<int,int> parent;
+    Point coordinate;
+    Node* parent;
     double f = 1e9;
     double g = 1e9;
     double h = 1e9;
 
+    Node(){}
+
+    Node(int a, int b) : coordinate(a,b) {}
+
     void set_f()
     {
         f = g + h;
-    }
-};
-
-struct IntPairHash {
-    static_assert(sizeof(int) * 2 == sizeof(size_t));
-
-    size_t operator()(std::pair<int,int> p) const noexcept {
-        return size_t(p.first) << 32 | p.second;
     }
 };
 
@@ -90,42 +81,30 @@ struct IntPairHash {
 //     return false;
 // }
 
-class Compare
-{
-public:
-    bool operator() (Node* a, Node* b)
-    {
-        return (a->f)>(b->f);
-    }
-};
-
 class a_star
 {
     public:
     std::vector<Node*> open;
-    std::unordered_set<std::pair<int,int>,IntPairHash> closed;
+    std::vector<Node*> closed;
+    std::vector<Node*> succ;
     int x_size, y_size;
-    std::pair<int,int> goalpose;
+    Node goalpose;
     Node startpose;
+    double* g_vals;
     double* map;
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
-    double c_s[NUMOFDIRS] = {sqrt(2),1,sqrt(2),1,1,sqrt(2),1,sqrt(2)};
     int collision_thresh;
-    std::unordered_map<std::pair<int,int>,Node,IntPairHash> my_map;
-
     
     a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
     x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
-        this->startpose.coordinate = std::make_pair(robotposeX,robotposeY);
+        this->goalpose.coordinate.set(goalposeX, goalposeY);
+        this->startpose.coordinate.set(robotposeX,robotposeY);
         this->startpose.g = 0;
-        this->startpose.h = euc_dist(startpose.coordinate,goalpose);
+        this->startpose.h = euc_dist(startpose,goalpose);
         this->startpose.set_f();
-        goalpose = std::make_pair(goalposeX,goalposeY);
-        my_map[startpose.coordinate] = startpose;
         open.push_back(&startpose);
-        std::make_heap(open.begin(),open.end(),[](Node* a, Node*b){return (a->f)>(b->f);}); //make min heap
     }
 
     static bool compare_f_val(const Node* a, const Node* b)
@@ -134,9 +113,9 @@ class a_star
         return false;
     }
 
-    double euc_dist(std::pair<int,int> a, std::pair<int,int> b)
+    double euc_dist(Node a, Node b)
     {
-        return (double)sqrt(((a.first-b.first)*(a.first-b.first) + (a.second-b.second)*(a.second-b.second)));
+        return (double)sqrt(((a.coordinate.x-b.coordinate.x)*(a.coordinate.x-b.coordinate.x) + (a.coordinate.y-b.coordinate.y)*(a.coordinate.y-b.coordinate.y)));
     }
 
     void compute_path()
@@ -144,76 +123,63 @@ class a_star
         
         while(!(open.empty()))
         {
-            Node* curr = open.front();
-            
-            if (curr->coordinate == goalpose) 
+            std::sort(open.begin(), open.end(),[](Node* a, Node* b){return (a->f < b->f);}); //compare_f_val);
+            Node* curr = open[0];
+            if ( (curr->coordinate.x == this->goalpose.coordinate.x) && (curr->coordinate.y == this->goalpose.coordinate.y) )
             {
-                Node temp;
-                temp.parent = curr->parent;
-                temp.g = curr->g;
-                temp.h = 0;
-                temp.set_f();
-                my_map[goalpose] = temp;
+                this->goalpose.parent = curr->parent;
+                this->goalpose.g = curr->g;
+                this->goalpose.h = 0;
+                this->goalpose.set_f();
                 break;
             }
-
             // mexPrintf("x: %d, y= %d, f: %f, g: %f \n",(*curr).coordinate.x,(*curr).coordinate.y, (*curr).f, (*curr).g);
-            closed.insert(curr->coordinate);
-            std::pop_heap(open.begin(),open.end());
-            open.pop_back();
-            mexPrintf("Size of open: %d \n",open.size());
-            mexPrintf("Size of closed: %d \n",closed.size());
-
+            closed.push_back(curr);
+            succ.clear();
             for(int dir = 0; dir < NUMOFDIRS; dir++)
             {
-                std::pair<int,int> new_loc = std::make_pair(curr->coordinate.first + dX[dir],curr->coordinate.second + dY[dir]);
+                Node* new_loc = new Node(curr->coordinate.x + dX[dir],curr->coordinate.y + dY[dir]);
 
-                if (new_loc.first >= 0 && new_loc.first < x_size && new_loc.second >= 0 && new_loc.second < y_size) //Within Bounds
+                if (new_loc->coordinate.x >= 0 && new_loc->coordinate.x < x_size && new_loc->coordinate.y >= 0 && new_loc->coordinate.y < y_size) //Within Bounds
                 {
-                    if (closed.count(new_loc) ==0) //Not in closed list
+                    if (find_if(closed.begin(),closed.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));})==closed.end())
                     {
-                        if (((int)map[GETMAPINDEX(new_loc.first,new_loc.second,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc.first,new_loc.second,x_size,y_size)] < collision_thresh))  //if free
+                        if (((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc->coordinate.x,new_loc->coordinate.y,x_size,y_size)] < collision_thresh))  //if free
                         {
-                            Node temp;
-                            temp.coordinate = new_loc;
-                            temp.g = curr->g + c_s[dir];
-                            temp.h = euc_dist(new_loc,goalpose);
-                            temp.set_f();
-                            temp.parent = curr->coordinate;
-                            auto it = my_map.find(new_loc);
-                            if (it==my_map.end()) 
+                            if (new_loc->g > curr->g + euc_dist(*curr, *new_loc))
                             {
-                                open.push_back(&temp);
-                                std::push_heap(open.begin(),open.end());
-                                my_map[new_loc] = temp;
+                                new_loc->g = curr->g + euc_dist(*curr, *new_loc);
+                                new_loc->h = euc_dist(*new_loc,goalpose);
+                                new_loc->set_f();
+                                new_loc->parent = curr;
+                                std::vector<Node*>::iterator it = find_if(open.begin(),open.end(),[new_loc](Node* a){return ((new_loc->coordinate.x == a->coordinate.x)&&(new_loc->coordinate.y == a->coordinate.y));});
+                                if (it==open.end()) open.push_back(new_loc);
+                                else {(**it).f = new_loc->f; (**it).parent = new_loc->parent;}
                             }
-                            else 
-                            {
-                                it->second.f = temp.f; 
-                                it->second.parent = temp.parent;
-                            }
-                        
                         }
                         else //If not free add to closed list
                         {
-                            closed.insert(new_loc);
+                            closed.push_back(new_loc);
                         }
                     }
                 }
             }
-            
+            open.erase(open.begin());
         }
+        mexPrintf("open size = %d",open.size());
     }
 
-    std::pair<int,int> make_path() //For now just return 1 action
+    Node make_path() //For now just return 1 action
     {
-        Node curr = my_map[goalpose];
-        while (curr.parent != startpose.coordinate)
+        std::stack<Node*> path;
+        Node* curr = &goalpose;
+        while (curr != &startpose)
         {
-            curr = my_map[curr.parent];
+            path.push(curr);
+            curr = curr->parent;
         }
 
-        return curr.coordinate;
+        return *(path.top());
     }
 
     
@@ -248,10 +214,10 @@ static void planner(
 
     a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh);
     mystar.compute_path();
-    std::pair<int,int> act = mystar.make_path();
+    Node act = mystar.make_path();
 
-    action_ptr[0] = act.first;
-    action_ptr[1] = act.second;
+    action_ptr[0] = act.coordinate.x;
+    action_ptr[1] = act.coordinate.y;
     
     return;
 }
