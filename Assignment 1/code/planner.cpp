@@ -167,7 +167,8 @@ class a_star
                 {
                     if (closed.count(new_loc) ==0) //Not in closed list
                     {
-                        if (((int)map[GETMAPINDEX(new_loc.first+1,new_loc.second+1,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc.first+1,new_loc.second+1,x_size,y_size)] < collision_thresh))  //if free
+                        int t_c = map[GETMAPINDEX(new_loc.first+1,new_loc.second+1,x_size,y_size)];
+                        if ((t_c >= 0) && (t_c < collision_thresh))  //if free
                         {
                             Node temp;
                             temp.coordinate = new_loc;
