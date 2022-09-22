@@ -119,8 +119,8 @@ class a_star
     a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
     x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
-        this->startpose = std::make_pair(--robotposeX,--robotposeY);
-        this->goalpose = std::make_pair(--goalposeX,--goalposeY); //cpp is 
+        this->startpose = std::make_pair(robotposeX-1,robotposeY-1);
+        this->goalpose = std::make_pair(goalposeX-1,goalposeY-1); //cpp is 0 indexed
         Node temp;
         temp.coordinate = startpose;     
         temp.g = 0;
@@ -167,7 +167,7 @@ class a_star
                 {
                     if (closed.count(new_loc) ==0) //Not in closed list
                     {
-                        if (((int)map[GETMAPINDEX(new_loc.first,new_loc.second,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc.first,new_loc.second,x_size,y_size)] < collision_thresh))  //if free
+                        if (((int)map[GETMAPINDEX(new_loc.first+1,new_loc.second+1,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(new_loc.first+1,new_loc.second+1,x_size,y_size)] < collision_thresh))  //if free
                         {
                             Node temp;
                             temp.coordinate = new_loc;
