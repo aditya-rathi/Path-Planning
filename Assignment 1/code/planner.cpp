@@ -90,19 +90,20 @@ struct IntPairHash {
 //     return false;
 // }
 
-// class Compare
-// {
-// public:
-//     bool operator() (Node* a, Node* b)
-//     {
-//         return (a->f)>(b->f);
-//     }
-// };
+class Compare
+{
+public:
+    bool operator() (Node* a, Node* b)
+    {
+        return (a->f)>(b->f);
+    }
+};
 
 class a_star
 {
     public:
-    std::vector<Node*> open;
+    // cmp = [](Node* a, Node*b){return (a->f)>(b->f);};
+    std::priority_queue<Node*,std::vector<Node*>,Compare> open;
     std::unordered_set<std::pair<int,int>,IntPairHash> closed;
     int x_size, y_size;
     std::pair<int,int> goalpose;
@@ -118,16 +119,15 @@ class a_star
     a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
     x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
-        this->startpose = std::make_pair(robotposeX,robotposeY);
+        this->startpose = std::make_pair(--robotposeX,--robotposeY);
+        this->goalpose = std::make_pair(--goalposeX,--goalposeY); //cpp is 
         Node temp;
-        temp.coordinate = startpose;
+        temp.coordinate = startpose;     
         temp.g = 0;
         temp.h = euc_dist(startpose,goalpose);
         temp.set_f();
         my_map[startpose] = temp;
-        open.push_back(&my_map[startpose]);
-        goalpose = std::make_pair(goalposeX,goalposeY);
-        std::make_heap(open.begin(),open.end(),[](Node* a, Node*b){return (a->f)>(b->f);}); //make min heap
+        open.push(&my_map[startpose]);
     }
 
     static bool compare_f_val(const Node* a, const Node* b)
@@ -146,25 +146,18 @@ class a_star
         
         while(!(open.empty()))
         {
-            Node* curr = open.front();
-            
+            Node* curr = open.top();
+            // mexPrintf("x = %d, y = %d, f = %f",curr->coordinate.first,curr->coordinate.second,curr->f);
             if (curr->coordinate == goalpose) 
             {
-                Node temp;
-                temp.parent = curr->parent;
-                temp.g = curr->g;
-                temp.h = 0;
-                temp.set_f();
-                my_map[goalpose] = temp;
                 break;
             }
 
-            // mexPrintf("x: %d, y= %d, f: %f, g: %f \n",(*curr).coordinate.x,(*curr).coordinate.y, (*curr).f, (*curr).g);
+            //  mexPrintf("x: %d, y= %d, f: %f, g: %f \n",(*curr).coordinate.first,(*curr).coordinate.second, (*curr).f, (*curr).g);
             closed.insert(curr->coordinate);
-            std::pop_heap(open.begin(),open.end());
-            open.pop_back();
-            mexPrintf("Size of open: %d \n",open.size());
-            mexPrintf("Size of closed: %d \n",closed.size());
+            open.pop();
+            // mexPrintf("Size of open: %d \n",open.size());
+            //mexPrintf("Size of closed: %d \n",closed.size());
 
             for(int dir = 0; dir < NUMOFDIRS; dir++)
             {
@@ -186,8 +179,8 @@ class a_star
                             if (it==my_map.end()) 
                             {
                                 my_map[new_loc] = temp;
-                                open.push_back(&my_map[new_loc]);
-                                std::push_heap(open.begin(),open.end());     
+                                open.push(&my_map[new_loc]);
+                                
                             }
                             else 
                             {
@@ -252,8 +245,11 @@ static void planner(
     mystar.compute_path();
     std::pair<int,int> act = mystar.make_path();
 
-    action_ptr[0] = act.first;
-    action_ptr[1] = act.second;
+    if (robotposeX==173)
+    {std::cout<<1;}
+
+    action_ptr[0] = act.first+1;
+    action_ptr[1] = act.second+1; //matlab is 1 indexed
     
     return;
 }
