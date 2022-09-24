@@ -19,6 +19,8 @@
 #include <utility> 
 
 #include <boost/functional/hash.hpp>
+#include <boost/unordered_set.hpp>
+#include <boost/unordered_map.hpp>
 
 
 /* Input Arguments */
@@ -45,7 +47,7 @@
 #define	MIN(A, B)	((A) < (B) ? (A) : (B))
 #endif
 
-#define NUMOFDIRS 8
+#define NUMOFDIRS 9
 
 
 
@@ -78,6 +80,15 @@ struct Point
     {
         return((this->x != other.x) || (this->y != other.y) || (this->t != other.t));
     }
+
+    friend std::size_t hash_value(Point const& p)
+    {
+        std::size_t seed = 0;
+        boost::hash_combine(seed,p.x);
+        boost::hash_combine(seed,p.y);
+        boost::hash_combine(seed,p.t);
+        return seed;
+    }
 };
 
 struct Node
@@ -88,28 +99,31 @@ struct Node
     double g = 1e9;
     double h = 1e9;
 
+    Node() {}
+
     void set_f()
     {
         f = g + h;
     }
 };
 
-struct PointHash {
+// struct PointHash {
 
-    size_t operator()(Point p) const noexcept {
-        std::size_t seed = 0;
-        boost::hash_combine(seed,p.x);
-        boost::hash_combine(seed,p.y);
-        boost::hash_combine(seed,p.t);
-        return seed;
-};
+//     size_t operator()(Point p) const {
+//         std::size_t seed = 0;
+//         boost::hash_combine(seed,p.x);
+//         boost::hash_combine(seed,p.y);
+//         boost::hash_combine(seed,p.t);
+//         return seed;
+// };
 
 class Compare
 {
 public:
     bool operator() (Node* a, Node* b)
     {
-        return (a->f)>(b->f);
+        if (a->f != b->f) return (a->f)>(b->f);
+        else return ((a->h) > (b->h));
     }
 };
 
@@ -120,25 +134,25 @@ class a_star
     public:
     // cmp = [](Node* a, Node*b){return (a->f)>(b->f);};
     std::priority_queue<Node*,std::vector<Node*>,Compare> open;
-    std::unordered_set<Point,PointHash> closed;
+    boost::unordered_set<Point> closed;
     int x_size, y_size;
-    std::unordered_set<std::pair<int,int>,boost::hash<std::pair<int,int>>> goal_list;
+    boost::unordered_set<std::pair<int,int>> goal_list;
     Point goalpose;
     double* target_traj;
     int target_steps;
     Point startpose;
     double* map;
-    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
-    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
-    double c_s[NUMOFDIRS] = {sqrt(2),1,sqrt(2),1,1,sqrt(2),1,sqrt(2)};
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0, 0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1, 0,  1, -1, 0, 1};
+    double c_s[NUMOFDIRS] = {sqrt(2),1,sqrt(2),1,1,1,sqrt(2),1,sqrt(2)};
     int collision_thresh;
-    std::unordered_map<Point,Node,PointHash> my_map;
+    boost::unordered_map<Point,Node> my_map;
 
     
     a_star(int size_x, int size_y, int robotposeX, int robotposeY, double* tg_traj, int c_time, int t_steps, double* global_map, int coll_thresh) : 
     x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh), target_traj(tg_traj), target_steps(t_steps)
     {
-        this->startpose = Point(robotposeX,robotposeY,0);
+        this->startpose = Point(robotposeX-1,robotposeY-1,0);
         for (int i=0;i<t_steps;i++) //list of all goal poses
         {
             this->goal_list.insert({tg_traj[i]-1,tg_traj[i+t_steps]-1}); //cpp is 0 indexed
@@ -152,15 +166,15 @@ class a_star
         open.push(&my_map[startpose]);
     }
 
-    static bool compare_f_val(const Node* a, const Node* b)
-    {
-        if(a->f < b->f) return true;
-        return false;
-    }
+    // static bool compare_f_val(const Node* a, const Node* b)
+    // {
+    //     if(a->f < b->f) return true;
+    //     return false;
+    // }
 
     double euc_dist(Point a)
     {
-        return (double)sqrt((a.x - target_traj[a.t])*(a.x - target_traj[a.t]) + (a.y - target_traj[a.t+target_steps])*(a.y - target_traj[a.t+target_steps]));
+        return (double)5*sqrt((a.x - target_traj[a.t])*(a.x - target_traj[a.t]) + (a.y - target_traj[a.t+target_steps])*(a.y - target_traj[a.t+target_steps]));
     }
 
     void compute_path()
@@ -169,7 +183,7 @@ class a_star
         while(!(open.empty()))
         {
             Node* curr = open.top();
-            // mexPrintf("x = %d, y = %d, f = %f",curr->coordinate.first,curr->coordinate.second,curr->f);
+            // mexPrintf("x = %d, y = %d, t = %d, f = %f \n",curr->coordinate.x,curr->coordinate.y,curr->coordinate.t,curr->f);
             auto it = goal_list.find({curr->coordinate.x,curr->coordinate.y});
             if (it !=goal_list.end()) 
             {
@@ -177,17 +191,17 @@ class a_star
                 break;
             }
 
-            //  mexPrintf("x: %d, y= %d, f: %f, g: %f \n",(*curr).coordinate.first,(*curr).coordinate.second, (*curr).f, (*curr).g);
+            
             closed.insert(curr->coordinate);
             open.pop();
-            // mexPrintf("Size of open: %d \n",open.size());
+            mexPrintf("Size of open: %d \n",open.size());
             //mexPrintf("Size of closed: %d \n",closed.size());
 
             for(int dir = 0; dir < NUMOFDIRS; dir++)
             {
                 Point new_loc = Point(curr->coordinate.x + dX[dir],curr->coordinate.y + dY[dir],curr->coordinate.t+1);
 
-                if (new_loc.x >= 0 && new_loc.y < x_size && new_loc.x >= 0 && new_loc.y < y_size) //Within Bounds
+                if (new_loc.x >= 0 && new_loc.x < x_size && new_loc.y >= 0 && new_loc.y < y_size) //Within Bounds
                 {
                     if (closed.count(new_loc) == 0) //Not in closed list
                     {
@@ -196,7 +210,7 @@ class a_star
                         {
                             Node temp;
                             temp.coordinate = new_loc;
-                            temp.g = curr->g + c_s[dir];
+                            temp.g = curr->g + t_c * c_s[dir]; //1 for Time
                             temp.h = euc_dist(new_loc);
                             temp.set_f();
                             temp.parent = curr->coordinate;
@@ -230,7 +244,7 @@ class a_star
         std::stack<Point> path;
         Node curr = my_map[goalpose];
         path.push(curr.coordinate);
-        while (curr.parent != startpose)
+        while (curr.coordinate != startpose)
         {
             curr = my_map[curr.parent];
             path.push(curr.coordinate);
@@ -271,10 +285,11 @@ static void planner(
 
     a_star mystar(x_size,y_size, robotposeX, robotposeY, target_traj, curr_time, target_steps, map, collision_thresh);
     mystar.compute_path();
-    Point act = mystar.make_path();
+    mystar.make_path();
 
-    action_ptr[0] = act.x+1;
-    action_ptr[1] = act.y+1; //matlab is 1 indexed
+    action_ptr[0] = global_path.top().x+1;
+    action_ptr[1] = global_path.top().y+1; //matlab is 1 indexed
+    global_path.pop();
     
     return;
 }
