@@ -17,10 +17,8 @@
 #include <unordered_set>
 #include <map>
 #include <utility> 
-
-#include <boost/functional/hash.hpp>
-#include <boost/unordered_set.hpp>
-#include <boost/unordered_map.hpp>
+#include <thread>
+#include <mutex>
 
 
 /* Input Arguments */
@@ -47,59 +45,32 @@
 #define	MIN(A, B)	((A) < (B) ? (A) : (B))
 #endif
 
-#define NUMOFDIRS 9
-
-
+#define NUMOFDIRS 8
 
 struct Point
 {
-    public:
     int x = 0;
     int y = 0;
-    int t = 0;
 
     Point(){}
 
-    Point(int a, int b, int c) : x(a), y(b), t(c) {}
+    Point(int a, int b) : x(a), y(b) {}
     
     
-    void set(int a, int b, int c)
+    void set(int a, int b)
     {
         this->x = a;
         this->y = b;
-        this->t = c;
-
-    }
-
-    bool operator==(const Point& other) const
-    {
-        return((this->x == other.x) && (this->y == other.y) && (this->t == other.t));
-    }
-
-    bool operator!=(const Point& other)const
-    {
-        return((this->x != other.x) || (this->y != other.y) || (this->t != other.t));
-    }
-
-    friend std::size_t hash_value(Point const& p)
-    {
-        std::size_t seed = 0;
-        boost::hash_combine(seed,p.x);
-        boost::hash_combine(seed,p.y);
-        boost::hash_combine(seed,p.t);
-        return seed;
     }
 };
 
 struct Node
 {
-    Point coordinate;
-    Point parent;
+    std::pair<int,int> coordinate;
+    std::pair<int,int> parent;
     double f = 1e9;
     double g = 1e9;
     double h = 1e9;
-
-    Node() {}
 
     void set_f()
     {
@@ -107,74 +78,71 @@ struct Node
     }
 };
 
-// struct PointHash {
+struct IntPairHash {
+    static_assert(sizeof(int) * 2 == sizeof(size_t));
 
-//     size_t operator()(Point p) const {
-//         std::size_t seed = 0;
-//         boost::hash_combine(seed,p.x);
-//         boost::hash_combine(seed,p.y);
-//         boost::hash_combine(seed,p.t);
-//         return seed;
-// };
+    size_t operator()(std::pair<int,int> p) const noexcept {
+        return size_t(p.first) << 32 | p.second;
+    }
+};
+
+// bool operator==(const Node* lhs, const Node* rhs)
+// {
+//     if (lhs == rhs) return true;
+//     return false;
+// }
 
 class Compare
 {
 public:
     bool operator() (Node* a, Node* b)
     {
-        if (a->f != b->f) return (a->f)>(b->f);
-        else return ((a->h) > (b->h));
+        return (a->f)>(b->f);
     }
 };
-
-std::stack<Point> global_path;
 
 class a_star
 {
     public:
     // cmp = [](Node* a, Node*b){return (a->f)>(b->f);};
     std::priority_queue<Node*,std::vector<Node*>,Compare> open;
-    boost::unordered_set<Point> closed;
+    std::unordered_set<std::pair<int,int>,IntPairHash> closed;
     int x_size, y_size;
-    boost::unordered_set<std::pair<int,int>> goal_list;
-    Point goalpose;
-    double* target_traj;
-    int target_steps;
-    Point startpose;
+    std::pair<int,int> goalpose;
+    std::pair<int,int> startpose;
     double* map;
-    int dX[NUMOFDIRS] = {-1, -1, -1,  0, 0,  0,  1, 1, 1};
-    int dY[NUMOFDIRS] = {-1,  0,  1, -1, 0,  1, -1, 0, 1};
-    double c_s[NUMOFDIRS] = {sqrt(2),1,sqrt(2),1,1,1,sqrt(2),1,sqrt(2)};
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+    double c_s[NUMOFDIRS] = {sqrt(2),1,sqrt(2),1,1,sqrt(2),1,sqrt(2)};
     int collision_thresh;
-    boost::unordered_map<Point,Node> my_map;
+    std::unordered_map<std::pair<int,int>,Node,IntPairHash> my_map;
+    std::mutex my_map_mutex;
+    std::thread thread_list[NUMOFDIRS];
 
     
-    a_star(int size_x, int size_y, int robotposeX, int robotposeY, double* tg_traj, int c_time, int t_steps, double* global_map, int coll_thresh) : 
-    x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh), target_traj(tg_traj), target_steps(t_steps)
+    a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
+    x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
-        this->startpose = Point(robotposeX-1,robotposeY-1,0);
-        for (int i=0;i<t_steps;i++) //list of all goal poses
-        {
-            this->goal_list.insert({tg_traj[i]-1,tg_traj[i+t_steps]-1}); //cpp is 0 indexed
-        }
+        this->startpose = std::make_pair(robotposeX-1,robotposeY-1);
+        this->goalpose = std::make_pair(goalposeX-1,goalposeY-1); //cpp is 0 indexed
         Node temp;
         temp.coordinate = startpose;     
         temp.g = 0;
-        temp.h = euc_dist(startpose);
+        temp.h = euc_dist(startpose,goalpose);
         temp.set_f();
         my_map[startpose] = temp;
         open.push(&my_map[startpose]);
     }
 
-    // static bool compare_f_val(const Node* a, const Node* b)
-    // {
-    //     if(a->f < b->f) return true;
-    //     return false;
-    // }
-
-    double euc_dist(Point a)
+    static bool compare_f_val(const Node* a, const Node* b)
     {
-        return (double)5*sqrt((a.x - target_traj[a.t])*(a.x - target_traj[a.t]) + (a.y - target_traj[a.t+target_steps])*(a.y - target_traj[a.t+target_steps]));
+        if(a->f<b->f) return true;
+        return false;
+    }
+
+    double euc_dist(std::pair<int,int> a, std::pair<int,int> b)
+    {
+        return (double)sqrt(((a.first-b.first)*(a.first-b.first) + (a.second-b.second)*(a.second-b.second)));
     }
 
     void compute_path()
@@ -183,74 +151,77 @@ class a_star
         while(!(open.empty()))
         {
             Node* curr = open.top();
-            // mexPrintf("x = %d, y = %d, t = %d, f = %f \n",curr->coordinate.x,curr->coordinate.y,curr->coordinate.t,curr->f);
-            auto it = goal_list.find({curr->coordinate.x,curr->coordinate.y});
-            if (it !=goal_list.end()) 
+            // mexPrintf("x = %d, y = %d, f = %f",curr->coordinate.first,curr->coordinate.second,curr->f);
+            if (curr->coordinate == goalpose) 
             {
-                goalpose = curr->coordinate;
                 break;
             }
 
-            
+            //  mexPrintf("x: %d, y= %d, f: %f, g: %f \n",(*curr).coordinate.first,(*curr).coordinate.second, (*curr).f, (*curr).g);
             closed.insert(curr->coordinate);
             open.pop();
-            mexPrintf("Size of open: %d \n",open.size());
+            // mexPrintf("Size of open: %d \n",open.size());
             //mexPrintf("Size of closed: %d \n",closed.size());
-
             for(int dir = 0; dir < NUMOFDIRS; dir++)
             {
-                Point new_loc = Point(curr->coordinate.x + dX[dir],curr->coordinate.y + dY[dir],curr->coordinate.t+1);
-
-                if (new_loc.x >= 0 && new_loc.x < x_size && new_loc.y >= 0 && new_loc.y < y_size) //Within Bounds
-                {
-                    if (closed.count(new_loc) == 0) //Not in closed list
-                    {
-                        int t_c = map[GETMAPINDEX(new_loc.x+1,new_loc.y+1,x_size,y_size)];
-                        if ((t_c >= 0) && (t_c < collision_thresh))  //if free
-                        {
-                            Node temp;
-                            temp.coordinate = new_loc;
-                            temp.g = curr->g + t_c * c_s[dir]; //1 for Time
-                            temp.h = euc_dist(new_loc);
-                            temp.set_f();
-                            temp.parent = curr->coordinate;
-                            auto it = my_map.find(new_loc);
-                            if (it==my_map.end()) 
-                            {
-                                my_map[new_loc] = temp;
-                                open.push(&my_map[new_loc]);
-                                
-                            }
-                            else 
-                            {
-                                it->second.f = temp.f; 
-                                it->second.parent = temp.parent;
-                            }
-                        
-                        }
-                        else //If not free add to closed list
-                        {
-                            closed.insert(new_loc);
-                        }
-                    }
-                }
-            }
-            
+                expand_succ(curr,dir);
+            }        
         }
     }
 
-    void make_path() //For now just return 1 action
+    void expand_succ(Node* curr, int dir)
     {
-        std::stack<Point> path;
+        std::pair<int,int> new_loc = std::make_pair(curr->coordinate.first + dX[dir],curr->coordinate.second + dY[dir]);
+
+        if (new_loc.first >= 0 && new_loc.first < x_size && new_loc.second >= 0 && new_loc.second < y_size) //Within Bounds
+        {
+            if (closed.count(new_loc) ==0) //Not in closed list
+            {
+                int t_c = map[GETMAPINDEX(new_loc.first+1,new_loc.second+1,x_size,y_size)];
+                if ((t_c >= 0) && (t_c < collision_thresh))  //if free
+                {
+                    Node temp;
+                    temp.coordinate = new_loc;
+                    temp.g = curr->g + t_c * c_s[dir];
+                    temp.h = euc_dist(new_loc,goalpose);
+                    temp.set_f();
+                    temp.parent = curr->coordinate;
+                    auto it = my_map.find(new_loc);
+                    // const std::lock_guard<std::mutex> lock(my_map_mutex);
+                    if (it==my_map.end()) 
+                    {
+                        my_map[new_loc] = temp;
+                        open.push(&my_map[new_loc]);
+                        
+                    }
+                    else 
+                    {
+                        if (it->second.f > temp.f)
+                        {
+                            it->second.f = temp.f; 
+                            it->second.g = temp.g;
+                            it->second.parent = temp.parent;
+                        }
+                    }
+                
+                }
+                else //If not free add to closed list
+                {
+                    closed.insert(new_loc);
+                }
+            }
+        }
+    }
+
+    std::pair<int,int> make_path() //For now just return 1 action
+    {
         Node curr = my_map[goalpose];
-        path.push(curr.coordinate);
-        while (curr.coordinate != startpose)
+        while (curr.parent != startpose)
         {
             curr = my_map[curr.parent];
-            path.push(curr.coordinate);
         }
 
-        global_path = path;
+        return curr.coordinate;
     }
 
     
@@ -283,13 +254,15 @@ static void planner(
     // printf("robot: %d %d;\n", robotposeX, robotposeY);
     // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
-    a_star mystar(x_size,y_size, robotposeX, robotposeY, target_traj, curr_time, target_steps, map, collision_thresh);
+    a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh);
     mystar.compute_path();
-    mystar.make_path();
+    std::pair<int,int> act = mystar.make_path();
 
-    action_ptr[0] = global_path.top().x+1;
-    action_ptr[1] = global_path.top().y+1; //matlab is 1 indexed
-    global_path.pop();
+    if (robotposeX==173)
+    {std::cout<<1;}
+
+    action_ptr[0] = act.first+1;
+    action_ptr[1] = act.second+1; //matlab is 1 indexed
     
     return;
 }
