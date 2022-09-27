@@ -242,15 +242,20 @@ static void planner(
     // printf("robot: %d %d;\n", robotposeX, robotposeY);
     // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
-    a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh);
-    mystar.compute_path();
-    std::pair<int,int> act = mystar.make_path();
+    if (robotposeX!=goalposeX || robotposeY!=goalposeY)
+    {
+        a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh);
+        mystar.compute_path();
+        std::pair<int,int> act = mystar.make_path();
 
-    if (robotposeX==173)
-    {std::cout<<1;}
-
-    action_ptr[0] = act.first+1;
-    action_ptr[1] = act.second+1; //matlab is 1 indexed
+        action_ptr[0] = act.first+1;
+        action_ptr[1] = act.second+1; //matlab is 1 indexed
+    }
+    else
+    {
+        action_ptr[0] = goalposeX;
+        action_ptr[1] = goalposeY; //matlab is 1 indexed
+    }
     
     return;
 }
