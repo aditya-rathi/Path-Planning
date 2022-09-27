@@ -107,16 +107,6 @@ struct Node
     }
 };
 
-// struct PointHash {
-
-//     size_t operator()(Point p) const {
-//         std::size_t seed = 0;
-//         boost::hash_combine(seed,p.x);
-//         boost::hash_combine(seed,p.y);
-//         boost::hash_combine(seed,p.t);
-//         return seed;
-// };
-
 class Compare
 {
 public:
@@ -129,6 +119,7 @@ public:
 
 // Global variables declaration
 std::stack<Point> global_path;
+bool first_time = true;
 
 class a_star
 {
