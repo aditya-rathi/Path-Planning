@@ -69,7 +69,6 @@ struct Node
     double f = 1e9;
     double g = 1e9;
     double h = 1e9;
-    int dist = 1e9; //number of moves made
 
     void set_f()
     {
@@ -94,17 +93,9 @@ public:
     }
 };
 
-void copyStack(std::stack<std::pair<int,int>>& stack1, std::stack<std::pair<int,int>>& stack2) {
-    stack2 = stack1;
-}
-
 //Global Vars
-std::stack<std::pair<int,int>>* path;
-std::stack<std::pair<int,int>>* temp_path;
-bool first_time = true;
-int mygoal_x, mygoal_y;
-double cumel_g = 0;
-double best_g;
+std::stack<std::pair<int,int>> path;
+bool first = true;
 
 class a_star
 {
@@ -121,13 +112,11 @@ class a_star
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     double c_s[NUMOFDIRS] = {1,1,1,1,1,1,1,1};
     int collision_thresh;
-    int target_steps;
-    int curr_time;
     
 
     
-    a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh, int t_steps, int c_time) : 
-    x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh), target_steps(t_steps), curr_time(c_time)
+    a_star(int size_x, int size_y, int robotposeX, int robotposeY, int goalposeX, int goalposeY, double* global_map, int coll_thresh) : 
+    x_size(size_x), y_size(size_y), map(global_map), collision_thresh(coll_thresh)
     {
         this->startpose = std::make_pair(robotposeX-1,robotposeY-1);
         this->goalpose = std::make_pair(goalposeX-1,goalposeY-1); //cpp is 0 indexed
@@ -136,7 +125,6 @@ class a_star
         temp.g = 0;
         temp.h = euc_dist(startpose,goalpose);
         temp.set_f();
-        temp.dist = 0;
         my_map[startpose] = temp;
         open.push(&my_map[startpose]);
     }
@@ -163,10 +151,7 @@ class a_star
             closed.insert(curr->coordinate);
             open.pop();
 
-            for(int dir = 0; dir < NUMOFDIRS; dir++) 
-            {
-                if(curr->dist < (target_steps - curr_time)) expand_succ(curr,dir);  
-            }
+            for(int dir = 0; dir < NUMOFDIRS; dir++) expand_succ(curr,dir);  
         }
     }
 
@@ -186,7 +171,6 @@ class a_star
                     temp.g = curr->g + t_c * c_s[dir];
                     temp.h = euc_dist(new_loc,goalpose);
                     temp.set_f();
-                    temp.dist = curr->dist + 1;
                     temp.parent = curr->coordinate;
                     auto it = my_map.find(new_loc);
                     if (it==my_map.end()) 
@@ -214,18 +198,15 @@ class a_star
         }
     }
 
-    void make_path() //For now just return 1 action
+    std::pair<int,int> make_path() //For now just return 1 action
     {
-        temp_path = new std::stack<std::pair<int,int>>;
         Node curr = my_map[goalpose];
-        best_g = curr.g + cumel_g;
         while (curr.parent != startpose)
         {
-            temp_path->push(curr.coordinate);
             curr = my_map[curr.parent];
         }
-        temp_path->push(curr.coordinate);
-        path = temp_path;
+
+        return curr.coordinate;
     }
 
     
@@ -251,64 +232,23 @@ static void planner(
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     
-    int goalposeX = (int) target_traj[target_steps-1];
-    int goalposeY = (int) target_traj[target_steps-1+target_steps];
-
-    mexPrintf("goal x: %d, y = %d \n", mygoal_x,mygoal_y);
-    mexPrintf("robot x: %d, y = %d \n",robotposeX,robotposeY);
-    
     // Get current target position
-    if (first_time)
-    {
-        mygoal_x = goalposeX;
-        mygoal_y = goalposeY;
-        if(robotposeX != goalposeX || robotposeY != goalposeY)
-        {
-            a_star mystar(x_size, y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh,target_steps,curr_time);
-            mystar.compute_path();
-            mystar.make_path();
-            first_time = false;
-        }
-        else
-        {
-            action_ptr[0] = goalposeX;
-            action_ptr[1] = goalposeY;
-            return;
-        }
-    }
-    else
-    {
-        //Backtrack the target path
-        int goalposeX = (int) target_traj[target_steps - 1 - curr_time];
-        int goalposeY = (int) target_traj[target_steps - 1 + target_steps - curr_time];
-        
-        
-        a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh,target_steps,curr_time);
-        mystar.compute_path();
-        if ((mystar.my_map[{goalposeX,goalposeY}].g + cumel_g) < best_g) 
-        {
-            mexPrintf("%f \n",mystar.my_map[{goalposeX,goalposeY}].g + cumel_g);
-            mystar.make_path();
-            mygoal_x = goalposeX;
-            mygoal_y = goalposeY;
-        }
 
-    }
-    if(robotposeX != mygoal_x || robotposeY != mygoal_y)
-    {
-        std::pair<int,int> act = path->top();
-        cumel_g+=map[GETMAPINDEX(act.first+1,act.second+1,x_size,y_size)];
-        action_ptr[0] = act.first+1;
-        action_ptr[1] = act.second+1; //matlab is 1 indexed
+    int goalposeX = (int) target_traj[curr_time];
+    int goalposeY = (int) target_traj[curr_time+target_steps];
+    // printf("robot: %d %d;\n", robotposeX, robotposeY);
+    // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
-        path->pop();
-    }
-    else
-    {
-        // delete(path);
-        action_ptr[0] = mygoal_x;
-        action_ptr[1] = mygoal_y;
-    }
+    a_star mystar(x_size,y_size, robotposeX, robotposeY, goalposeX, goalposeY, map, collision_thresh);
+    mystar.compute_path();
+    std::pair<int,int> act = mystar.make_path();
+
+    if (robotposeX==173)
+    {std::cout<<1;}
+
+    action_ptr[0] = act.first+1;
+    action_ptr[1] = act.second+1; //matlab is 1 indexed
+    
     return;
 }
 
