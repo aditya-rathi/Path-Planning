@@ -162,7 +162,7 @@ class a_star
         {
             if (curr_time!=0)
             {
-                if ((double(clock() - start_time)/double(CLOCKS_PER_SEC)) > 0.6) break;
+                if ((double(clock() - start_time)/double(CLOCKS_PER_SEC)) > 0.8) break;
             }
 
             Node* curr = open.top();
