@@ -281,6 +281,8 @@ int IsValidArmConfiguration(double* angles, int numofDOFs, double*	map,
 	return 1;
 }
 
+
+
 static void planner(
 			double* map,
 			int x_size,
@@ -340,6 +342,7 @@ static void planner(
 int main(int argc, char** argv) {
 	double* map;
 	int x_size, y_size;
+	std::cout<<argv[1]<<std::endl;
 
 	tie(map, x_size, y_size) = loadMap(argv[1]);
 	const int numOfDOFs = std::stoi(argv[2]);

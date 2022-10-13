@@ -1,4 +1,4 @@
-map1.txt
+C:\Users\adity.CERLAB-UGV\Documents\CMU Sem 3\Path-Planning\Assignment 2\code\map1.txt
 1.57,0.78,1.57,0.78,1.57,
 1.50456,0.867222,1.65722,0.893333,1.74444,
 1.43911,0.954444,1.74444,1.00667,1.91889,
