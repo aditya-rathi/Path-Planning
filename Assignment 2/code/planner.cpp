@@ -17,6 +17,9 @@
 #include <fstream> // For reading/writing files
 #include <assert.h> 
 
+#include <random>
+#include <queue>
+
 /* Input Arguments */
 #define	MAP_IN      prhs[0]
 #define	ARMSTART_IN	prhs[1]
@@ -281,6 +284,175 @@ int IsValidArmConfiguration(double* angles, int numofDOFs, double*	map,
 	return 1;
 }
 
+//Global random num engine
+std::mt19937 eng;
+
+struct Node
+{
+	vector<double> coord;
+	Node* left = NULL;
+	Node* right = NULL;
+	Node* parent = NULL;
+};
+
+double euc_dist(vector<double> a, vector<double> b)
+{
+	if(a.size()!=b.size()) return -1;
+	double result = 0;
+	for(int i=0;i<a.size();i++) result+=((a[i]-b[i])*(a[i]-b[i]));
+	return sqrt(result);
+}
+
+double euc_dist(double* a, double* b, int size)
+{
+	double result=0;
+	for(int i=0;i<size;i++) result+=((a[i]-b[i])*(a[i]-b[i]));
+	return sqrt(result);	
+}
+
+double* random_config(double* map, int x_size, int y_size, int numofDOFs)
+{
+	std::uniform_real_distribution<double> num_gen(0,2*PI);
+	double* config = (double*) malloc(numofDOFs*sizeof(double));
+	for (int i = 0; i<numofDOFs; i++)
+	{
+		config[i] = num_gen(eng); 
+	}
+	while(!IsValidArmConfiguration(config,numofDOFs,map,x_size,y_size))
+	{
+		for (int i = 0; i<numofDOFs; i++)
+		{
+			config[i] = num_gen(eng); 
+		}
+	}
+	return config;
+}
+
+Node* nearest_nhb(Node* head, double* curr_arr, int numofDOFs, double* result)
+{
+	vector<double> curr = vector<double>(curr_arr,curr_arr+numofDOFs);
+	int axis = 0;
+	int depth = 0;
+	vector<double> nearest_nhb = head->coord;
+	double best_dist = euc_dist(head->coord,curr);
+	Node* parent = head;
+
+	while(head)
+	{
+		double temp_dist = euc_dist(head->coord,curr);
+		if (temp_dist<best_dist)
+		{
+			best_dist = temp_dist;
+			nearest_nhb = head->coord;
+			parent = head;
+		}
+
+		if (curr[axis]<head->coord[axis]) head = head->left;
+		else if (curr[axis]>head->coord[axis]) head = head->right;
+		else break;
+
+		depth++;
+		axis = depth%numofDOFs;
+	}
+	std::copy(nearest_nhb.begin(),nearest_nhb.end(),result);
+	return parent; 
+}
+
+void add_elem(Node* head, Node* temp, double* nhb_coord, double* curr, int numofDOFs, double eps_start, double* map, int x_size, int y_size)
+{
+	double eps = eps_start;
+	double dist = euc_dist(nhb_coord,curr,numofDOFs);
+	double unit_vec[5];
+	for(int i=0;i<numofDOFs;i++)
+	{
+		unit_vec[i] = (curr[i] - nhb_coord[i])/dist;
+	}
+
+	for(int i=0;i<numofDOFs;i++)
+	{
+		temp->coord[i] = nhb_coord[i] + unit_vec[i]*eps;
+	}
+
+	while(!IsValidArmConfiguration(&temp->coord[0],numofDOFs,map,x_size,y_size) && eps>0)
+	{
+		eps-=1e-2;
+		for(int i=0;i<numofDOFs;i++)
+		{
+			temp->coord[i] = nhb_coord[i] + unit_vec[i]*eps;
+		}
+	}
+
+	if(eps<0) return;
+	
+	int axis = 0;
+	int depth = 0;
+	Node* parent = head;
+	while(head)
+	{
+		parent = head;
+		if(temp->coord[axis]<head->coord[axis]) head = head->left;
+		else head = head->right;
+		depth++;
+		axis = depth%numofDOFs;
+	}
+
+	axis = (depth-1)%numofDOFs;
+	if(temp->coord[axis] < parent->coord[axis]) parent->left = temp;
+	else parent->right = temp;
+	return;
+}
+
+void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
+{
+	int nodes_added = 0;
+	double eps = 0.5;
+	//no plan by default
+	*plan = NULL;
+	*planlength = 0;
+
+	//Initialize K-d tree
+	Node* head = new Node();
+	head->coord = std::vector<double>(armstart_anglesV_rad,armstart_anglesV_rad+numofDOFs);
+
+
+	//Generate random sample
+	double* nhb_coord = (double*) malloc(numofDOFs*sizeof(double));
+	for(int i=0;i<numofDOFs; nhb_coord[i] = head->coord[i], i++);
+
+	Node* last_added;
+
+	while(!equalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs))
+	{
+		double* curr = random_config(map, x_size, y_size, numofDOFs);
+		Node* parent = nearest_nhb(head,curr,numofDOFs,nhb_coord);
+		last_added = new Node();
+		last_added->coord.assign(5,0);
+		last_added->parent = parent;
+
+		add_elem(head, last_added, nhb_coord,curr,numofDOFs,eps, map, x_size, y_size);
+		nodes_added++;
+	}
+	
+	// Reconstruct path
+	std::queue<double*> path;
+	path.push(armgoal_anglesV_rad);
+	while(last_added!=head)
+	{
+		last_added = last_added->parent;
+		path.push(&last_added->coord[0]);
+	}
+	*plan = (double**) malloc((path.size()+1)*sizeof(double*));
+	for(int j=0; j<numofDOFs; j++) (*plan)[0][j] = armstart_anglesV_rad[j];
+    for (int i = 0; i < (path.size()+1); i++){
+        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+        for(int j = 0; j < numofDOFs; j++){
+            (*plan)[i][j] = *(path.front()+j);
+        }
+		path.pop();
+	}
+	*planlength = path.size()+1;
+}
+
 
 
 static void planner(
@@ -293,36 +465,41 @@ static void planner(
             double*** plan,
             int* planlength)
 {
-	//no plan by default
-	*plan = NULL;
-	*planlength = 0;
-		
-    //for now just do straight interpolation between start and goal checking for the validity of samples
+	//seed the engine
+	eng.seed(16782);
 
-    double distance = 0;
-    int i,j;
-    for (j = 0; j < numofDOFs; j++){
-        if(distance < fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]))
-            distance = fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]);
-    }
-    int numofsamples = (int)(distance/(PI/20));
-    if(numofsamples < 2){
-        printf("The arm is already at the goal\n");
-        return;
-    }
-	int countNumInvalid = 0;
-    *plan = (double**) malloc(numofsamples*sizeof(double*));
-    for (i = 0; i < numofsamples; i++){
-        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
-        for(j = 0; j < numofDOFs; j++){
-            (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
-        }
-        if(!IsValidArmConfiguration((*plan)[i], numofDOFs, map, x_size, y_size)) {
-			++countNumInvalid;
-        }
-    }
-	printf("Linear interpolation collided at %d instances across the path\n", countNumInvalid);
-    *planlength = numofsamples;
+	rrt(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
+
+	//no plan by default
+	// *plan = NULL;
+	// *planlength = 0;
+		
+    // //for now just do straight interpolation between start and goal checking for the validity of samples
+
+    // double distance = 0;
+    // int i,j;
+    // for (j = 0; j < numofDOFs; j++){
+    //     if(distance < fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]))
+    //         distance = fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]);
+    // }
+    // int numofsamples = (int)(distance/(PI/20));
+    // if(numofsamples < 2){
+    //     printf("The arm is already at the goal\n");
+    //     return;
+    // }
+	// int countNumInvalid = 0;
+    // *plan = (double**) malloc(numofsamples*sizeof(double*));
+    // for (i = 0; i < numofsamples; i++){
+    //     (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+    //     for(j = 0; j < numofDOFs; j++){
+    //         (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
+    //     }
+    //     if(!IsValidArmConfiguration((*plan)[i], numofDOFs, map, x_size, y_size)) {
+	// 		++countNumInvalid;
+    //     }
+    // }
+	// printf("Linear interpolation collided at %d instances across the path\n", countNumInvalid);
+    // *planlength = numofsamples;
     
     return;
 }
@@ -342,7 +519,6 @@ static void planner(
 int main(int argc, char** argv) {
 	double* map;
 	int x_size, y_size;
-	std::cout<<argv[1]<<std::endl;
 
 	tie(map, x_size, y_size) = loadMap(argv[1]);
 	const int numOfDOFs = std::stoi(argv[2]);
