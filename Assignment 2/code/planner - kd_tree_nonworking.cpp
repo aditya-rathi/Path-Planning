@@ -121,7 +121,7 @@ double* doubleArrayFromString(string str) {
 bool equalDoubleArrays(double* v1, double *v2, int size) {
     for (int i = 0; i < size; ++i) {
         if (abs(v1[i]-v2[i]) > 1e-3) {
-            // cout << endl;
+            cout << endl;
             return false;
         }
     }
@@ -290,17 +290,17 @@ std::mt19937 eng;
 struct Node
 {
 	vector<double> coord;
+	Node* left = NULL;
+	Node* right = NULL;
 	Node* parent = NULL;
 };
 
-bool myequalDoubleArrays(double* v1, double *v2, int size) {
-    for (int i = 0; i < size; ++i) {
-        if (abs(v1[i]-v2[i]) > 1e-1) {
-            // cout << endl;
-            return false;
-        }
-    }
-    return true;
+double euc_dist(vector<double> a, vector<double> b)
+{
+	if(a.size()!=b.size()) return -1;
+	double result = 0;
+	for(int i=0;i<a.size();i++) result+=((a[i]-b[i])*(a[i]-b[i]));
+	return sqrt(result);
 }
 
 double euc_dist(double* a, double* b, int size)
@@ -328,27 +328,39 @@ double* random_config(double* map, int x_size, int y_size, int numofDOFs)
 	return config;
 }
 
-int nearest_nhb(const std::vector<double*> node_list, double* curr, int numofDOFs)
+Node* nearest_nhb(Node* head, double* curr_arr, int numofDOFs, double* result)
 {
-	double best_dist = euc_dist(node_list[0],curr,numofDOFs);
-	int nhb_ind = 0;
+	vector<double> curr = vector<double>(curr_arr,curr_arr+numofDOFs);
+	int axis = 0;
+	int depth = 0;
+	vector<double> nearest_nhb = head->coord;
+	double best_dist = euc_dist(head->coord,curr);
+	Node* parent = head;
 
-	for (int i=1;i<node_list.size();i++)
+	while(head)
 	{
-		double temp_dist = euc_dist(node_list[i],curr,numofDOFs);
+		double temp_dist = euc_dist(head->coord,curr);
 		if (temp_dist<best_dist)
 		{
 			best_dist = temp_dist;
-			nhb_ind = i;
+			nearest_nhb = head->coord;
+			parent = head;
 		}
+
+		if (curr[axis]<head->coord[axis]) head = head->left;
+		else if (curr[axis]>head->coord[axis]) head = head->right;
+		else break;
+
+		depth++;
+		axis = depth%numofDOFs;
 	}
-	return nhb_ind;
+	std::copy(nearest_nhb.begin(),nearest_nhb.end(),result);
+	return parent; 
 }
 
-std::pair<bool,double*> add_elem(const std::vector<double*> node_list, int nearest_nhb_ind, double* curr, int numofDOFs, double eps_start, double* map, int x_size, int y_size)
+void add_elem(Node* head, Node* temp, double* nhb_coord, double* curr, int numofDOFs, double eps_start, double* map, int x_size, int y_size)
 {
 	double eps = eps_start;
-	double* nhb_coord = node_list[nearest_nhb_ind];
 	double dist = euc_dist(nhb_coord,curr,numofDOFs);
 	double unit_vec[5];
 	for(int i=0;i<numofDOFs;i++)
@@ -356,24 +368,38 @@ std::pair<bool,double*> add_elem(const std::vector<double*> node_list, int neare
 		unit_vec[i] = (curr[i] - nhb_coord[i])/dist;
 	}
 
-	double* new_node = (double*) malloc(numofDOFs*sizeof(double));
-
 	for(int i=0;i<numofDOFs;i++)
 	{
-		new_node[i] = nhb_coord[i] + unit_vec[i]*eps;
+		temp->coord[i] = nhb_coord[i] + unit_vec[i]*eps;
 	}
 
-	while(!IsValidArmConfiguration(new_node,numofDOFs,map,x_size,y_size) && eps>0)
+	while(!IsValidArmConfiguration(&temp->coord[0],numofDOFs,map,x_size,y_size) && eps>0)
 	{
 		eps-=1e-2;
 		for(int i=0;i<numofDOFs;i++)
 		{
-			new_node[i] = nhb_coord[i] + unit_vec[i]*eps;
+			temp->coord[i] = nhb_coord[i] + unit_vec[i]*eps;
 		}
 	}
 
-	if(eps<0) return std::make_pair(false,new_node);
-	return std::make_pair(true,new_node);
+	if(eps<0) return;
+	
+	int axis = 0;
+	int depth = 0;
+	Node* parent = head;
+	while(head)
+	{
+		parent = head;
+		if(temp->coord[axis]<head->coord[axis]) head = head->left;
+		else head = head->right;
+		depth++;
+		axis = depth%numofDOFs;
+	}
+
+	axis = (depth-1)%numofDOFs;
+	if(temp->coord[axis] < parent->coord[axis]) parent->left = temp;
+	else parent->right = temp;
+	return;
 }
 
 void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
@@ -384,53 +410,48 @@ void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 	*plan = NULL;
 	*planlength = 0;
 
-	//Initialize
-	std::vector<double*> node_list;
-	std::vector<int> parent_list;
-	node_list.push_back(armstart_anglesV_rad);
-	parent_list.push_back(-1);
+	//Initialize K-d tree
+	Node* head = new Node();
+	head->coord = std::vector<double>(armstart_anglesV_rad,armstart_anglesV_rad+numofDOFs);
 
 
 	//Generate random sample
 	double* nhb_coord = (double*) malloc(numofDOFs*sizeof(double));
+	for(int i=0;i<numofDOFs; nhb_coord[i] = head->coord[i], i++);
 
-	while(!myequalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs) && nodes_added<15000)
+	Node* last_added;
+
+	while(!equalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs) && nodes_added<1000)
 	{
-		std::cout<<nodes_added<<std::endl;
 		double* curr = random_config(map, x_size, y_size, numofDOFs);
-		int nearest_nhb_ind = nearest_nhb(node_list,curr,numofDOFs);
-		
-		std::pair<bool, double*> data;
-		data = add_elem(node_list, nearest_nhb_ind, curr, numofDOFs, eps, map, x_size, y_size);
-		
-		if(data.first)
-		{
-			node_list.push_back(data.second);
-			parent_list.push_back(nearest_nhb_ind);
-			nodes_added++;
-		}	
+		Node* parent = nearest_nhb(head,curr,numofDOFs,nhb_coord);
+		last_added = new Node();
+		last_added->coord.assign(5,0);
+		last_added->parent = parent;
+
+		add_elem(head, last_added, nhb_coord, curr, numofDOFs, eps, map, x_size, y_size);
+		nodes_added++;
 	}
 	
 	// Reconstruct path
-	int parent_ind = nearest_nhb(node_list,armgoal_anglesV_rad,numofDOFs);
+	last_added = nearest_nhb(head,armgoal_anglesV_rad,numofDOFs,nhb_coord);
 	std::stack<double*> path;
 	path.push(armgoal_anglesV_rad);
 	
-	while(parent_ind!=-1)
+	while(last_added)
 	{
-		path.push(node_list[parent_ind]);
-		parent_ind = parent_list[parent_ind];
+		path.push(&last_added->coord[0]);
+		last_added = last_added->parent;	
 	}
+	// path.push(armstart_anglesV_rad);
 
 	*planlength = path.size();
-	*plan = (double**) malloc((path.size())*sizeof(double*));
+	*plan = (double**) malloc((path.size()+1)*sizeof(double*));
 
-    for (int i = 0; i < *planlength; i++)
-	{
+    for (int i = 0; i < path.size(); i++){
         (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
-        for(int j = 0; j < numofDOFs; j++)
-		{
-            (*plan)[i][j] = path.top()[j];
+        for(int j = 0; j < numofDOFs; j++){
+            (*plan)[i][j] = *(path.top()+j);
         }
 		path.pop();
 	}
