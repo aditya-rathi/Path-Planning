@@ -405,7 +405,7 @@ void add_elem(Node* head, Node* temp, double* nhb_coord, double* curr, int numof
 void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
 {
 	int nodes_added = 0;
-	double eps = 0.5;
+	double eps = 0.2;
 	//no plan by default
 	*plan = NULL;
 	*planlength = 0;
@@ -421,7 +421,7 @@ void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 
 	Node* last_added;
 
-	while(!equalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs))
+	while(!equalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs) && nodes_added<1000)
 	{
 		double* curr = random_config(map, x_size, y_size, numofDOFs);
 		Node* parent = nearest_nhb(head,curr,numofDOFs,nhb_coord);
@@ -429,28 +429,33 @@ void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 		last_added->coord.assign(5,0);
 		last_added->parent = parent;
 
-		add_elem(head, last_added, nhb_coord,curr,numofDOFs,eps, map, x_size, y_size);
+		add_elem(head, last_added, nhb_coord, curr, numofDOFs, eps, map, x_size, y_size);
 		nodes_added++;
 	}
 	
 	// Reconstruct path
-	std::queue<double*> path;
+	last_added = nearest_nhb(head,armgoal_anglesV_rad,numofDOFs,nhb_coord);
+	std::stack<double*> path;
 	path.push(armgoal_anglesV_rad);
-	while(last_added!=head)
+	
+	while(last_added)
 	{
-		last_added = last_added->parent;
 		path.push(&last_added->coord[0]);
+		last_added = last_added->parent;	
 	}
+	// path.push(armstart_anglesV_rad);
+
+	*planlength = path.size();
 	*plan = (double**) malloc((path.size()+1)*sizeof(double*));
-	for(int j=0; j<numofDOFs; j++) (*plan)[0][j] = armstart_anglesV_rad[j];
-    for (int i = 0; i < (path.size()+1); i++){
+
+    for (int i = 0; i < path.size(); i++){
         (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
         for(int j = 0; j < numofDOFs; j++){
-            (*plan)[i][j] = *(path.front()+j);
+            (*plan)[i][j] = *(path.top()+j);
         }
 		path.pop();
 	}
-	*planlength = path.size()+1;
+	
 }
 
 
