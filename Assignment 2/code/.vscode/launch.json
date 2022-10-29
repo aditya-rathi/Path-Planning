@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}\\planner.exe",
-            "args": ["${workspaceFolder}\\map1.txt","5","1.57,0.78,1.57,0.78,1.57","0.392,2.35,3.14,2.82,4.71","2","myOutput.txt"],
+            "args": ["${workspaceFolder}\\map1.txt","5","1.57,0.78,1.57,0.78,1.57","0.392,2.35,3.14,2.82,4.71","3","myOutput.txt"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
@@ -29,6 +29,7 @@
                 }
             ]
         }
+
 
     ]
 }

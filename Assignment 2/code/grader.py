@@ -43,7 +43,7 @@ def graderMain(executablePath, gradingCSV):
                 executablePath,
                 inputMap, numDOFs, startPosString, goalPosString,
                 aPlanner, outputSolutionFile)
-            commandVerify = "./verifier.out {} {} {} {} {}".format(
+            commandVerify = "./verifier.exe {} {} {} {} {}".format(
                 inputMap, numDOFs, startPosString, goalPosString,
                 outputSolutionFile)
             try:
@@ -84,4 +84,4 @@ def graderMain(executablePath, gradingCSV):
             
 
 if __name__ == "__main__":
-    graderMain("./planner.out", "test.csv")
+    graderMain("./planner.exe", "test.csv")

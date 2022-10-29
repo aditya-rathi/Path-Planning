@@ -19,6 +19,7 @@
 
 #include <random>
 #include <queue>
+#include <limits>
 
 /* Input Arguments */
 #define	MAP_IN      prhs[0]
@@ -351,29 +352,65 @@ std::pair<bool,double*> add_elem(const std::vector<double*> node_list, int neare
 	double* nhb_coord = node_list[nearest_nhb_ind];
 	double dist = euc_dist(nhb_coord,curr,numofDOFs);
 	double unit_vec[5];
-	for(int i=0;i<numofDOFs;i++)
-	{
-		unit_vec[i] = (curr[i] - nhb_coord[i])/dist;
-	}
-
 	double* new_node = (double*) malloc(numofDOFs*sizeof(double));
+	
+	if(dist<eps) eps = dist;
 
-	for(int i=0;i<numofDOFs;i++)
-	{
-		new_node[i] = nhb_coord[i] + unit_vec[i]*eps;
-	}
+	for(int i=0;i<numofDOFs;i++) unit_vec[i] = (curr[i] - nhb_coord[i])/dist;
+
+	for(int i=0;i<numofDOFs;i++) new_node[i] = nhb_coord[i] + unit_vec[i]*eps;
 
 	while(!IsValidArmConfiguration(new_node,numofDOFs,map,x_size,y_size) && eps>0)
 	{
 		eps-=1e-2;
-		for(int i=0;i<numofDOFs;i++)
-		{
-			new_node[i] = nhb_coord[i] + unit_vec[i]*eps;
-		}
+		for(int i=0;i<numofDOFs;i++) new_node[i] = nhb_coord[i] + unit_vec[i]*eps;
 	}
 
 	if(eps<0) return std::make_pair(false,new_node);
 	return std::make_pair(true,new_node);
+}
+
+int uf_find(std::vector<int>& uf_array, int x)
+{
+	if (uf_array[x] != x) uf_array[x] = uf_find(uf_array,uf_array[x]);
+	return uf_array[x];
+}
+
+void uf_union(std::vector<int>& uf_array, std::vector<int>& uf_rank, int src, int dst)
+{
+	int x = uf_find(uf_array,src);
+	int y = uf_find(uf_array,dst);
+	if (uf_rank[x] < uf_rank[y])
+	{
+		uf_array[x] = y;
+	}
+	else if (uf_rank[x] > uf_rank[y])
+	{
+		uf_array[y] = x;
+	}
+	else
+	{
+		uf_array[y] = x;
+		uf_rank[x]++;
+	}
+}
+
+std::vector<int> k_nearest_nhb(const std::vector<double*>& samples, double* curr, int k, int numofDOFs)
+{
+	std::priority_queue<std::pair<double,int>,std::vector<std::pair<double,int>>,std::greater<std::pair<double,int>>> pq;
+	for (int i=0; i<samples.size(); i++)
+	{
+		double dist = euc_dist(samples[i],curr,numofDOFs);
+		if (dist>1e-3)	pq.push({dist,i});
+	}
+	std::vector<int> result;
+	for (int i= 0;i<k;i++)
+	{
+		result.push_back(pq.top().second);
+		pq.pop();
+	}
+	pq = std::priority_queue<std::pair<double,int>,std::vector<std::pair<double,int>>,std::greater<std::pair<double,int>>>();
+	return result;
 }
 
 void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
@@ -396,7 +433,6 @@ void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 
 	while(!myequalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs) && nodes_added<15000)
 	{
-		std::cout<<nodes_added<<std::endl;
 		double* curr = random_config(map, x_size, y_size, numofDOFs);
 		int nearest_nhb_ind = nearest_nhb(node_list,curr,numofDOFs);
 		
@@ -408,6 +444,7 @@ void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 			node_list.push_back(data.second);
 			parent_list.push_back(nearest_nhb_ind);
 			nodes_added++;
+			nhb_coord = data.second;
 		}	
 	}
 	
@@ -437,6 +474,283 @@ void rrt(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 	
 }
 
+void rrt_connect(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
+{
+	int nodes_added = 0;
+	double eps = 0.2;
+	//no plan by default
+	*plan = NULL;
+	*planlength = 0;
+
+	//Initialize
+	std::vector<double*> fwd_node_list;
+	std::vector<int> fwd_parent_list;
+	std::vector<double*> back_node_list;
+	std::vector<int> back_parent_list;
+	bool which_tree = true; //true = fwd_tree || false = back_tree
+	bool trees_connected = false;
+	
+	fwd_node_list.push_back(armstart_anglesV_rad);
+	fwd_parent_list.push_back(-1);
+	back_node_list.push_back(armgoal_anglesV_rad);
+	back_parent_list.push_back(-1);
+
+
+	//Generate random sample
+	double* last_node_added;
+	std::pair<bool, double*> data; 
+
+	while(!trees_connected && nodes_added<15000)
+	{
+		// std::cout<<nodes_added<<std::endl;
+		double* sample = random_config(map, x_size, y_size, numofDOFs);
+		int nearest_nhb_ind;
+		if(which_tree)	nearest_nhb_ind = nearest_nhb(fwd_node_list,sample,numofDOFs);
+		else nearest_nhb_ind = nearest_nhb(back_node_list,sample,numofDOFs);
+		
+		
+		if (which_tree)	data = add_elem(fwd_node_list, nearest_nhb_ind, sample, numofDOFs, eps, map, x_size, y_size);
+		else data = add_elem(back_node_list, nearest_nhb_ind, sample, numofDOFs, eps, map, x_size, y_size);
+		//expand current main tree
+		if(data.first)
+		{
+			last_node_added = data.second;
+			nodes_added++;
+
+			if (which_tree)
+			{	
+				fwd_node_list.push_back(data.second);
+				fwd_parent_list.push_back(nearest_nhb_ind);
+			}
+			else
+			{
+				back_node_list.push_back(data.second);
+				back_parent_list.push_back(nearest_nhb_ind);
+			}
+
+			// Try connecting other tree
+			data = std::make_pair(true,static_cast<double*>(NULL));
+			while(data.first)
+			{
+				if (which_tree)
+				{
+					sample = fwd_node_list[fwd_node_list.size()-1];
+					nearest_nhb_ind = nearest_nhb(back_node_list,sample,numofDOFs);
+					data = add_elem(back_node_list, nearest_nhb_ind, sample, numofDOFs, eps, map, x_size, y_size);
+					back_node_list.push_back(data.second);
+					back_parent_list.push_back(nearest_nhb_ind);
+				}
+				else
+				{
+					sample = back_node_list[back_node_list.size()-1];
+					nearest_nhb_ind = nearest_nhb(fwd_node_list,sample,numofDOFs);
+					data = add_elem(fwd_node_list, nearest_nhb_ind, sample, numofDOFs, eps, map, x_size, y_size);
+					fwd_node_list.push_back(data.second);
+					fwd_parent_list.push_back(nearest_nhb_ind);
+				}
+				if(equalDoubleArrays(data.second,last_node_added,numofDOFs))
+				{
+					trees_connected = true;
+					break;	
+				} 
+			}
+		}	
+		which_tree = !which_tree; //flip trees
+	}
+	
+	// Reconstruct path
+	std::deque<double*> path;
+	int fwd_ind, back_ind;
+	if(!trees_connected)
+	{
+		fwd_ind = nearest_nhb(fwd_node_list,armgoal_anglesV_rad,numofDOFs);
+		back_ind = nearest_nhb(back_node_list,fwd_node_list[fwd_ind],numofDOFs);
+	}
+	else
+	{
+		fwd_ind = fwd_node_list.size()-1;
+		back_ind = back_node_list.size()-1;
+	}
+	
+	
+	
+	// Make fwd path first
+	while(fwd_ind!=-1)
+	{
+		path.push_back(fwd_node_list[fwd_ind]);
+		fwd_ind = fwd_parent_list[fwd_ind];
+	}
+	// Next make back path
+	while(back_ind!=-1)
+	{
+		path.push_front(back_node_list[back_ind]);
+		back_ind = back_parent_list[back_ind];
+	}
+
+	*planlength = path.size();
+	*plan = (double**) malloc((*planlength)*sizeof(double*));
+
+    for (int i = 0; i < *planlength; i++)
+	{
+        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+        for(int j = 0; j < numofDOFs; j++)
+		{
+            (*plan)[i][j] = path.back()[j];
+        }
+		path.pop_back();
+	}
+	
+}
+
+void prm(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
+{
+	int nodes_added = 0;
+	double eps = 0.3;
+
+	//no plan by default
+	*plan = NULL;
+	*planlength = 0;
+
+	//Preprocessing Phase
+	const int numsamples = 10000;
+	std::vector<double*> samples;
+	std::vector<std::vector<int>> edges(numsamples+2,std::vector<int>(numsamples+2,0));
+	
+	// int edges[numsamples+2][numsamples+2]; //Adjacency matrix of edges. Add 2 for start and goal
+	std::vector<int> uf_array; //to store components
+	std::vector<int> uf_rank(numsamples,0);
+
+	//Generate the random samples
+	for(int i=0;i<numsamples;i++) 
+	{
+		samples.push_back(random_config(map,x_size,y_size,numofDOFs));
+		uf_array.push_back(i);
+	}
+
+	// Assuming k=3 for now
+	int k = 3;
+
+	for(int i=0;i<numsamples;i++)
+	{
+		double* curr = samples[i];
+		if (i==4451)
+		{
+			std::cout<<"hello"<<std::endl;
+		}
+
+		// Create edge map		
+		std::vector<int> temp = k_nearest_nhb(samples,curr,k,numofDOFs);		
+		for (int j = 0;j<temp.size();j++)
+		{
+			
+			int nhb_ind = temp[j];
+			if (edges[i][nhb_ind] == 0) 
+			{
+				edges[i][nhb_ind] = 1;
+				// Since our graph is undirected
+				edges[nhb_ind][i] = 1;
+			}
+
+			// Create connected components
+			uf_union(uf_array,uf_rank,i,nhb_ind); //set parent of nhb_ind to i			
+		}
+	}
+		
+	//Planning phase
+	//Augment graph with start and goal
+	samples.push_back(armstart_anglesV_rad); //numsamples+1
+	samples.push_back(armgoal_anglesV_rad); //numsamples+2
+	
+	k = 5; //Check 5 closest neighbors when connecting start and goal
+	std::vector<int> start_nhb = k_nearest_nhb(samples, armstart_anglesV_rad, k, numofDOFs);
+	std::vector<int> goal_nhb = k_nearest_nhb(samples, armgoal_anglesV_rad, k, numofDOFs);
+	std::vector<int> comps;
+	for (int i=0; i<k; i++)
+	{
+		int start_comp = uf_find(uf_array,start_nhb[i]);
+		comps.push_back(start_comp);
+	}
+	for (int i=0; i<k; i++)
+	{
+		bool connected = false;
+		int goal_comp = uf_find(uf_array,goal_nhb[i]);
+		for (int j = 0;j<k;j++)
+		{
+			if(goal_comp == comps[j])
+			{
+				edges[numsamples][start_nhb[j]] = 1;
+				edges[start_nhb[j]][numsamples] = 1;
+				edges[numsamples+1][goal_nhb[i]] = 1;
+				edges[goal_nhb[i]][numsamples+1] = 1;
+				connected = true;
+				break;
+			}
+		}
+		if(connected) break;
+	}
+	
+
+	//Djikstra's algo for path finding
+	std::vector<int> distances(numsamples+2,std::numeric_limits<int>::max());
+	std::vector<bool> visited(numsamples+2,false);
+	std::vector<int> parents;
+	parents.reserve(numsamples+2);
+
+	//Initialize
+	distances[numsamples] = 0;
+	parents[numsamples] = -1;
+
+	//Find path
+	for(int i=0;i<numsamples+2;i++)
+	{
+		int curr = -1;
+		int curr_dist = std::numeric_limits<int>::max();
+		for (int j = 0; j<numsamples+2;j++)
+		{
+			if(!visited[j] && distances[j]<curr_dist)
+			{
+				curr = j;
+				curr_dist = distances[j];
+			}
+		}
+		visited[curr] = true;
+		for (int j = 0; j<numsamples+2;j++)
+		{
+			int edgecost = edges[curr][j];
+			if (edgecost>0 && (curr_dist+edgecost < distances[j]))
+			{
+				distances[j] = curr_dist + edgecost;
+				parents[j] = curr;
+			}
+		}
+		if (distances[numsamples+1]<std::numeric_limits<int>::max()) break; //Goal has been reached
+	}
+
+	//Make path
+	std::stack<double*> path;
+	double* curr = samples[numsamples+1];
+	int parent = parents[numsamples+1];
+	while (parent!=-1)
+	{
+		path.push(curr);
+		curr = samples[parent];
+		parent = parents[parent];
+	}
+	path.push(curr);
+	*planlength = path.size();
+	*plan = (double**) malloc((path.size())*sizeof(double*));
+
+    for (int i = 0; i < *planlength; i++)
+	{
+        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+        for(int j = 0; j < numofDOFs; j++)
+		{
+            (*plan)[i][j] = path.top()[j];
+        }
+		path.pop();
+	}
+}
+
 
 
 static void planner(
@@ -447,44 +761,35 @@ static void planner(
 			double* armgoal_anglesV_rad,
             int numofDOFs,
             double*** plan,
-            int* planlength)
+            int* planlength,
+			int whichPlanner)
 {
 	//seed the engine
 	eng.seed(16782);
 
-	rrt(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
+	switch (whichPlanner)
+	{
+	case 0:
+		std::cout<<"Using rrt"<<std::endl;
+		rrt(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
+		break;
+	
+	case 1:
+		std::cout<<"Using rrt-connect"<<std::endl;
+		rrt_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
+		break;
 
-	//no plan by default
-	// *plan = NULL;
-	// *planlength = 0;
-		
-    // //for now just do straight interpolation between start and goal checking for the validity of samples
+	case 3:
+		std::cout<<"Using prm"<<std::endl;
+		prm(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
+		break;
 
-    // double distance = 0;
-    // int i,j;
-    // for (j = 0; j < numofDOFs; j++){
-    //     if(distance < fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]))
-    //         distance = fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]);
-    // }
-    // int numofsamples = (int)(distance/(PI/20));
-    // if(numofsamples < 2){
-    //     printf("The arm is already at the goal\n");
-    //     return;
-    // }
-	// int countNumInvalid = 0;
-    // *plan = (double**) malloc(numofsamples*sizeof(double*));
-    // for (i = 0; i < numofsamples; i++){
-    //     (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
-    //     for(j = 0; j < numofDOFs; j++){
-    //         (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
-    //     }
-    //     if(!IsValidArmConfiguration((*plan)[i], numofDOFs, map, x_size, y_size)) {
-	// 		++countNumInvalid;
-    //     }
-    // }
-	// printf("Linear interpolation collided at %d instances across the path\n", countNumInvalid);
-    // *planlength = numofsamples;
-    
+	default:
+		throw runtime_error("Invalid planner selected!\n");
+		break;
+	}
+	std::cout<<"Path found successfully"<<std::endl;
+	//    
     return;
 }
 
@@ -521,7 +826,7 @@ int main(int argc, char** argv) {
 
 	double** plan = NULL;
 	int planlength = 0;
-	planner(map, x_size, y_size, startPos, goalPos, numOfDOFs, &plan, &planlength);
+	planner(map, x_size, y_size, startPos, goalPos, numOfDOFs, &plan, &planlength, whichPlanner);
 
 	//// Feel free to modify anything above.
 	//// If you modify something below, please change it back afterwards as my 
