@@ -602,6 +602,93 @@ void rrt_connect(double* map, int x_size, int y_size, double* armstart_anglesV_r
 	
 }
 
+void rrt_star(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
+{
+	int nodes_added = 0;
+	double eps = 0.25;
+	//no plan by default
+	*plan = NULL;
+	*planlength = 0;
+
+	//Initialize
+	std::vector<double*> node_list;
+	std::vector<int> parent_list;
+	std::vector<double> g_vals;
+	node_list.push_back(armstart_anglesV_rad);
+	parent_list.push_back(-1);
+	g_vals.push_back(0);
+
+	
+	double* nhb_coord = (double*) malloc(numofDOFs*sizeof(double));
+
+	while(!myequalDoubleArrays(nhb_coord,armgoal_anglesV_rad,numofDOFs) && nodes_added<15000)
+	{
+		//Generate random sample
+		double* curr = random_config(map, x_size, y_size, numofDOFs);
+		int nearest_nhb_ind = nearest_nhb(node_list,curr,numofDOFs);
+		
+		std::pair<bool, double*> data;
+		data = add_elem(node_list, nearest_nhb_ind, curr, numofDOFs, eps, map, x_size, y_size);
+		
+		if(!data.first) continue;
+		
+		node_list.push_back(data.second);
+		parent_list.push_back(nearest_nhb_ind);
+		g_vals.push_back(g_vals[nearest_nhb_ind]+euc_dist(data.second,node_list[nearest_nhb_ind],numofDOFs));
+		nodes_added++;
+		nhb_coord = data.second;
+
+		// Rewiring
+		int k = 5; //Look at k nearest neighbors for rewiring
+		std::vector<int> neighbors = k_nearest_nhb(node_list,data.second,k,numofDOFs);
+		for (int i = 0; i<k; i++)
+		{
+			double c_prime = g_vals[neighbors[i]] + euc_dist(node_list[neighbors[i]],data.second,numofDOFs);
+			if (c_prime<g_vals.back())
+			{
+				g_vals.back() = c_prime;
+				parent_list.back() = neighbors[i];
+			}
+		}
+		for (int i =0; i<k; i++)
+		{
+			double c_prime = g_vals.back() + euc_dist(node_list.back(),node_list[neighbors[i]],numofDOFs);
+			if (c_prime < g_vals[neighbors[i]])
+			{
+				g_vals[neighbors[i]] = c_prime;
+				parent_list[neighbors[i]] = parent_list.size() - 1;
+			}
+			
+		}
+		
+	}
+	
+	// Reconstruct path
+	int parent_ind = nearest_nhb(node_list,armgoal_anglesV_rad,numofDOFs);
+	std::stack<double*> path;
+	path.push(armgoal_anglesV_rad);
+	
+	while(parent_ind!=-1)
+	{
+		path.push(node_list[parent_ind]);
+		parent_ind = parent_list[parent_ind];
+	}
+
+	*planlength = path.size();
+	*plan = (double**) malloc((path.size())*sizeof(double*));
+
+    for (int i = 0; i < *planlength; i++)
+	{
+        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+        for(int j = 0; j < numofDOFs; j++)
+		{
+            (*plan)[i][j] = path.top()[j];
+        }
+		path.pop();
+	}
+	
+}
+
 void prm(double* map, int x_size, int y_size, double* armstart_anglesV_rad, double* armgoal_anglesV_rad, int numofDOFs, double*** plan, int* planlength)
 {
 	int nodes_added = 0;
@@ -633,10 +720,6 @@ void prm(double* map, int x_size, int y_size, double* armstart_anglesV_rad, doub
 	for(int i=0;i<numsamples;i++)
 	{
 		double* curr = samples[i];
-		if (i==4451)
-		{
-			std::cout<<"hello"<<std::endl;
-		}
 
 		// Create edge map		
 		std::vector<int> temp = k_nearest_nhb(samples,curr,k,numofDOFs);		
@@ -777,6 +860,11 @@ static void planner(
 	case 1:
 		std::cout<<"Using rrt-connect"<<std::endl;
 		rrt_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
+		break;
+
+	case 2:
+		std::cout<<"Using rrt-star"<<std::endl;
+		rrt_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,planlength);
 		break;
 
 	case 3:
