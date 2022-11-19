@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include <queue>
+#include <vector>
+
 #define SYMBOLS 0
 #define INITIAL 1
 #define GOAL 2
@@ -368,9 +371,39 @@ public:
         }
         throw runtime_error("Action " + name + " not found!");
     }
+
     unordered_set<string> get_symbols() const
     {
         return this->symbols;
+    }
+
+    //my mods
+
+    unordered_set<GroundedCondition, GroundedConditionHasher, GroundedConditionComparator> get_initial_cond()
+    {
+        return this->initial_conditions;
+    }
+
+    int check_with_goal(unordered_set<GroundedCondition, GroundedConditionHasher, GroundedConditionComparator> cond)
+    {
+        int h = 0;
+        auto it = this->goal_conditions.begin();
+        while(it!=this->goal_conditions.end())
+        {
+            if(!cond.count(*it)) ++h;
+            ++it;
+        }
+        return h;
+    }
+
+    vector<Action> get_action_list()
+    {
+        vector<Action> res;
+        for(Action a:this->actions)
+        {
+            res.push_back(a);
+        }
+        return res;
     }
 
     friend ostream& operator<<(ostream& os, const Env& w)
@@ -477,6 +510,7 @@ list<string> parse_symbols(string symbols_str)
 }
 
 Env* create_env(char* filename)
+
 {
     ifstream input_file(filename);
     Env* env = new Env();
@@ -741,9 +775,82 @@ Env* create_env(char* filename)
     return env;
 }
 
+struct State
+{
+    unordered_set<GroundedCondition, GroundedConditionHasher, GroundedConditionComparator> cond;
+    int g;
+    int h;
+    State* parent_state;
+
+    State()
+    {
+        g = INT_MAX;
+    }
+
+    void set_heuristic(Env* env)
+    {
+        this->h = env->check_with_goal(this->cond);
+    }
+};
+
+class pq_Compare
+{
+public:
+    bool operator() (State* a, State* b)
+    {
+        return (a->g + a->h)>(b->g + b->h);
+    }
+};
+
+class a_star
+{
+    public:
+    std::priority_queue<State*,std::vector<State*>,pq_Compare> open;
+    std::vector<State*> closed;
+    Env* env;
+    vector<Action> action_list;
+
+    a_star(Env* e) : env(e)
+    {
+        action_list = env->get_action_list();
+    }
+
+    std::vector<State*> get_succ(State* curr)
+    {
+        for(Action act : action_list)
+        {
+
+        }
+    }
+
+    State* compute_path()
+    {
+        bool goal_expanded = false;
+        while(!goal_expanded && !open.empty())
+        {
+            State* curr = open.top();
+            open.pop();
+            closed.push_back(curr);
+            std::vector<State*> succ = get_succ(curr);
+        }
+    }
+};
+
+
 list<GroundedAction> planner(Env* env)
 {
     // this is where you insert your planner
+    State* start = new State();
+    start->g = 0;
+    start->cond = env->get_initial_cond();
+    start->set_heuristic(env);
+
+    a_star my_star(env);
+
+    my_star.open.push(start);
+
+    // State* goal = my_star.compute_path();
+    
 
     // blocks world example
     list<GroundedAction> actions;
