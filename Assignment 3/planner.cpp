@@ -781,6 +781,7 @@ struct State
     int g;
     int h;
     State* parent_state;
+    GroundedAction* parent_act;
 
     State()
     {
@@ -809,18 +810,135 @@ class a_star
     std::vector<State*> closed;
     Env* env;
     vector<Action> action_list;
+    vector<string> symbols;
 
     a_star(Env* e) : env(e)
     {
         action_list = env->get_action_list();
+        symbols = vector<string>(env->get_symbols().begin(),env->get_symbols().end());
+    }
+
+    void permute(std::vector<std::vector<string>>& result, int n, int k, int i)
+    {
+            if(i == 0)
+        {
+            vector<string> temp;
+            for(int j=n; j<n+k; j++) temp.push_back(symbols[j]);
+            result.push_back(temp);
+            return;
+        }
+
+        for(int j=0; j<n; j++)
+        {
+            swap(symbols[j], symbols[n-1]);
+            permute(result, n-1, k, i-1);
+            swap(symbols[j], symbols[n-1]);
+        }
     }
 
     std::vector<State*> get_succ(State* curr)
     {
+        std::vector<State*> succ;
         for(Action act : action_list)
         {
+            // For each action
+            list<string> act_args = act.get_args();
+            vector<vector<string>> symbol_perms;
+            permute(symbol_perms, symbols.size(), act_args.size(), act_args.size()); //Get nPk permutations of the symbols
 
+            for(vector<string> s: symbol_perms)
+            {
+                // Try one possible permuation
+                GroundedAction* test_act = new GroundedAction(act.get_name(),list(s.begin(), s.end()));
+                unordered_set<Condition, ConditionHasher, ConditionComparator> precond = act.get_preconditions();
+                auto it = precond.begin();
+                bool preconditions_satisfied = true;
+                while(it!=precond.end())
+                {
+                    // Check Preconditions
+                    string predicate = (*it).get_predicate();
+                    list<string> args = (*it).get_args();
+                    for(int i = 0 ; i< args.size(); i++)
+                    {
+                        //Find index of action argument and replace it with ours
+                        auto it2 = std::find(act_args.begin(), act_args.end(), args.front());
+                        if(it2!=act_args.end())
+                        {
+                            int ind = std::distance(act_args.begin(),it2);
+                            args.pop_front();
+                            args.push_back(s[ind]);
+                        }
+
+                    }
+                    
+                    if(!curr->cond.count(GroundedCondition(predicate, args)))
+                    {
+                        preconditions_satisfied = false;
+                        break;
+                    }
+                    ++it;
+                }
+
+                if(!preconditions_satisfied) continue;
+
+                //Preconditions Satisfied Create new state
+                State* temp = new State();
+                temp->cond = curr->cond;
+                temp->parent_act = test_act;
+                temp->parent_state = curr;
+                temp->g = curr->g + 1;
+
+                //Do Action Effects
+                unordered_set<Condition, ConditionHasher, ConditionComparator> effects = act.get_effects();
+                auto ita = effects.begin();
+                while(ita!=effects.end())
+                {
+                    //Do Action Effect
+                    string predicate = (*ita).get_predicate();
+                    list<string> args = (*ita).get_args();
+                    for(int i = 0 ; i< args.size(); i++)
+                    {
+                        //Find index of action argument and replace it with ours
+                        auto ita2 = std::find(act_args.begin(), act_args.end(), args.front());
+                        if(ita2!=act_args.end())
+                        {
+                            int ind = std::distance(act_args.begin(),ita2);
+                            args.pop_front();
+                            args.push_back(s[ind]);
+                        }
+                    }
+                    if(!(*ita).get_truth() && temp->cond.count(GroundedCondition(predicate, args))) //False truth value
+                    {
+                        temp->cond.erase(GroundedCondition(predicate,args));
+                    }
+                    else temp->cond.insert(GroundedCondition(predicate,args));
+                    ++ita;
+                }
+
+                //Update heuristic
+                temp->set_heuristic(env);
+
+                //Add to vector
+                succ.push_back(temp);
+            }
         }
+        return succ;
+    }
+
+    bool check_in_closed(State* s)
+    {
+        for(State* c: closed)
+        {
+            if(std::distance(s->cond.begin(), s->cond.end()) != std::distance(c->cond.begin(), c->cond.end())) continue;
+            auto it = s->cond.begin();
+            while(it != s->cond.end())
+            {
+                if(!(c->cond.count(*it))) break;
+                ++it;
+            }
+            if (it==s->cond.end()) return true;
+        }
+        return false;
     }
 
     State* compute_path()
@@ -831,7 +949,31 @@ class a_star
             State* curr = open.top();
             open.pop();
             closed.push_back(curr);
+
+            if(curr->h == 0)
+            {
+                goal_expanded=true;
+                return curr;
+            }
+
             std::vector<State*> succ = get_succ(curr);
+
+            for(State* s:succ)
+            {    
+                if(!check_in_closed(s)) open.push(s);
+            }
+        }
+        return NULL;
+    }
+
+    void make_path(State* goal, list<GroundedAction>& actions)
+    {
+        State* curr;
+        curr = goal;
+        while(curr->parent_state)
+        {
+            actions.push_back(*(curr->parent_act));
+            curr = curr->parent_state;
         }
     }
 };
@@ -844,19 +986,24 @@ list<GroundedAction> planner(Env* env)
     start->g = 0;
     start->cond = env->get_initial_cond();
     start->set_heuristic(env);
+    start->parent_act = NULL;
+    start->parent_state = NULL;
 
     a_star my_star(env);
 
     my_star.open.push(start);
 
-    // State* goal = my_star.compute_path();
-    
+    State* goal = my_star.compute_path();
 
-    // blocks world example
+    if(!goal) cout<<"No plan"; return list<GroundedAction>();
+    
     list<GroundedAction> actions;
-    actions.push_back(GroundedAction("MoveToTable", { "A", "B" }));
-    actions.push_back(GroundedAction("Move", { "C", "Table", "A" }));
-    actions.push_back(GroundedAction("Move", { "B", "Table", "C" }));
+    my_star.make_path(goal, actions);
+    // blocks world example
+    
+    // actions.push_back(GroundedAction("MoveToTable", { "A", "B" }));
+    // actions.push_back(GroundedAction("Move", { "C", "Table", "A" }));
+    // actions.push_back(GroundedAction("Move", { "B", "Table", "C" }));
 
     return actions;
 }
