@@ -843,6 +843,15 @@ class a_star
         {
             // For each action
             list<string> act_args = act.get_args();
+            unordered_map<string,int> arg_ind;
+            int cnt = 0;
+            // Make hash map for effective lookup
+            for(auto i = act_args.begin(); i != act_args.end(); i++)
+            {
+                arg_ind[*i] = cnt;
+                ++cnt;
+            }
+
             vector<vector<string>> symbol_perms;
             permute(symbol_perms, symbols.size(), act_args.size(), act_args.size()); //Get nPk permutations of the symbols
 
@@ -858,17 +867,11 @@ class a_star
                     // Check Preconditions
                     string predicate = (*it).get_predicate();
                     list<string> args = (*it).get_args();
-                    for(int i = 0 ; i< args.size(); i++)
-                    {
-                        //Find index of action argument and replace it with ours
-                        auto it2 = std::find(act_args.begin(), act_args.end(), args.front());
-                        if(it2!=act_args.end())
-                        {
-                            int ind = std::distance(act_args.begin(),it2);
-                            args.pop_front();
-                            args.push_back(s[ind]);
-                        }
 
+                    //Replace with param strings
+                    for(auto i = args.begin(); i != args.end(); i++)
+                    {
+                        if(arg_ind.count(*i)) *i = s[arg_ind[*i]];
                     }
                     
                     if(!curr->cond.count(GroundedCondition(predicate, args)))
@@ -896,17 +899,11 @@ class a_star
                     //Do Action Effect
                     string predicate = (*ita).get_predicate();
                     list<string> args = (*ita).get_args();
-                    for(int i = 0 ; i< args.size(); i++)
+                    for(auto i = args.begin(); i != args.end(); i++)
                     {
-                        //Find index of action argument and replace it with ours
-                        auto ita2 = std::find(act_args.begin(), act_args.end(), args.front());
-                        if(ita2!=act_args.end())
-                        {
-                            int ind = std::distance(act_args.begin(),ita2);
-                            args.pop_front();
-                            args.push_back(s[ind]);
-                        }
+                        if(arg_ind.count(*i)) *i = s[arg_ind[*i]];
                     }
+
                     if(!(*ita).get_truth() && temp->cond.count(GroundedCondition(predicate, args))) //False truth value
                     {
                         temp->cond.erase(GroundedCondition(predicate,args));
@@ -972,7 +969,7 @@ class a_star
         curr = goal;
         while(curr->parent_state)
         {
-            actions.push_back(*(curr->parent_act));
+            actions.push_front(*(curr->parent_act));
             curr = curr->parent_state;
         }
     }
@@ -995,7 +992,11 @@ list<GroundedAction> planner(Env* env)
 
     State* goal = my_star.compute_path();
 
-    if(!goal) cout<<"No plan"; return list<GroundedAction>();
+    if(!goal) 
+    {
+        cout<<"No plan"; 
+        return list<GroundedAction>();
+    }
     
     list<GroundedAction> actions;
     my_star.make_path(goal, actions);

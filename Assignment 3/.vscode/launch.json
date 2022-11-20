@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}\\planner.exe",
-            "args": ["${workspaceFolder}\\Blocks.txt"],
+            "args": ["${workspaceFolder}\\FireExtinguisher.txt"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
